@@ -1,0 +1,30 @@
+# 编译产物
+*.exe
+*.dll
+
+# 压缩包
+*.zip
+*.tar.gz
+*.7z
+
+# 备份文件
+*.bak
+*.testbak
+
+# IDE
+.vs/
+*.user
+*.suo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# 日志
+*.log
+
+# 不需要提交的编译产物（Release 目录除外）
+# 如果需要保留 Release 中的 zip/exe，在 Release/.gitkeep 中管理
+Release/*.exe
+Release/*.dll
+Release/*.zip
