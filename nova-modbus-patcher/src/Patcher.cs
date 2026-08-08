@@ -3,6 +3,9 @@
 // 用 Mono.Cecil 自动 patch EcoChemie100.dll
 // 在 ExternalRS232.Send/Receive 中插入对 ModbusHelper 的调用
 // ============================================================
+// 2025-08-06 更新：
+//   - 修复 PatchReceive fallback：从 return "" 改为调用 ReadLine()
+// ============================================================
 
 using System;
 using System.IO;
@@ -203,18 +206,41 @@ class Patcher
         il.Append(il.Create(OpCodes.Call, tryReceiveRef));
         il.Append(il.Create(OpCodes.Stloc_0));
 
-        // if (result == null) goto ORIGINAL;
-        il.Append(il.Create(OpCodes.Ldloc_0));
-        var origLabel = il.Create(OpCodes.Nop);
-        il.Append(il.Create(OpCodes.Brfalse_S, origLabel));
+        // // if (result == null) goto ORIGINAL;
+        // il.Append(il.Create(OpCodes.Ldloc_0));
+        // var origLabel = il.Create(OpCodes.Nop);
+        // il.Append(il.Create(OpCodes.Brfalse_S, origLabel));
 
-        // return result;
-        il.Append(il.Create(OpCodes.Ldloc_0));
-        il.Append(il.Create(OpCodes.Ret));
+        // // return result="";--Shuai Modified
+        // il.Append(il.Create(OpCodes.Ldloc_0));
+        // il.Append(il.Create(OpCodes.Ret));
 
-        // ORIGINAL: 走原来的逻辑
-        il.Append(origLabel);
+        // // ORIGINAL: this.get_SerialPort().ReadLine();
+        // il.Append(origLabel);
+        // il.Append(il.Create(OpCodes.Ldarg_0));
+        // var getSerialPort = method.DeclaringType.Methods.First(m =>
+        //     m.Name == "get_SerialPort" && m.Parameters.Count == 0);
+        // var readLineMethod = method.Module.ImportReference(
+        //     typeof(System.IO.Ports.SerialPort).GetMethod("ReadLine"));
+        // il.Append(il.Create(OpCodes.Call, getSerialPort));
+        // il.Append(il.Create(OpCodes.Callvirt, readLineMethod));
+        // il.Append(il.Create(OpCodes.Ret));
+            // result = ModbusHelper.TryReceiveModbus(this);
+        il.Append(il.Create(OpCodes.Ldarg_0));
+        il.Append(il.Create(OpCodes.Call, tryReceiveRef));
+        il.Append(il.Create(OpCodes.Stloc_0));
+
+        // if (result != null) return result;
+        il.Append(il.Create(OpCodes.Ldloc_0));
+        var retLabel = il.Create(OpCodes.Ldloc_0);
+        il.Append(il.Create(OpCodes.Brtrue_S, retLabel));
+        
+        // result = "";  // fallback 返回空字符串，绝不调用 ReadLine
         il.Append(il.Create(OpCodes.Ldstr, ""));
+        il.Append(il.Create(OpCodes.Stloc_0));
+        
+        // return result;
+        il.Append(retLabel);
         il.Append(il.Create(OpCodes.Ret));
-    }
+    }//Modified by Shuai 2026.08.07 tried to fix the bug of no response
 }
