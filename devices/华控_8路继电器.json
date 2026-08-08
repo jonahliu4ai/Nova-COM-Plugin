@@ -1,0 +1,61 @@
+{
+  "name": "华控_8路继电器",
+  "protocol": "modbus-rtu",
+  "default_baudrate": 9600,
+  "default_address": 1,
+  "registers": {
+    "coil_base": {
+      "action": "read",
+      "fc": 1,
+      "addr": 0,
+      "type": "bitmap",
+      "unit": ""
+    },
+    "valve_count": {
+      "action": "read",
+      "fc": 3,
+      "addr": 0,
+      "type": "uint16",
+      "unit": ""
+    },
+    "status_word": {
+      "action": "read",
+      "fc": 3,
+      "addr": 1,
+      "type": "uint16",
+      "unit": ""
+    }
+  },
+  "commands": {
+    "open_ch": {
+      "action": "write_coil",
+      "addr_expr": "N-1",
+      "value": 1,
+      "params": ["N"]
+    },
+    "close_ch": {
+      "action": "write_coil",
+      "addr_expr": "N-1",
+      "value": 0,
+      "params": ["N"]
+    },
+    "open_all": {
+      "action": "write_coil",
+      "addr_expr": "0",
+      "value": 1
+    },
+    "close_all": {
+      "action": "write_coil",
+      "addr_expr": "0",
+      "value": 0
+    },
+    "read_all": {
+      "action": "read_coil",
+      "register": "coil_base"
+    },
+    "read_status": {
+      "action": "read",
+      "register": "status_word"
+    }
+  }
+}

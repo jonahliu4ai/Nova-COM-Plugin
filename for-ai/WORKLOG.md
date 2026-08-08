@@ -1,5 +1,12 @@
 # NovaCOMPlugin V4.4 工作备忘
 
+## 工作日志
+
+### 2026-07-16
+- 项目正式纳入 git 版本管理：`git init` + initial commit `834440d`（"Initial commit: NovaCOMPlugin V4.4 with continuous control fixes"），分支已重命名为 `main`。
+- 此前 V3 → V4.0 → V4.1 → V4.3 → V4.4 仅靠文件名区分版本，今后改用 git 历史。
+- 当日每日回顾据此生成博客草稿：`sliutech_website/for-ai/blog-drafts/20260716-nova-aibus-continuous-control.md`（date: 2026-07-16），待用户审阅后发布。
+
 ## 当前状态
 - **源码**: `NovaCOMPluginV4.4.cs`
 - **编译输出**: `NovaCOMPluginV4.4.dll`

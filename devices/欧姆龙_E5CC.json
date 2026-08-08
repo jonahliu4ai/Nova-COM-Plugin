@@ -1,0 +1,58 @@
+{
+  "name": "欧姆龙_E5CC",
+  "protocol": "modbus-rtu",
+  "default_baudrate": 9600,
+  "default_address": 1,
+  "registers": {
+    "pv": {
+      "action": "read",
+      "fc": 3,
+      "addr": 0,
+      "type": "int16",
+      "scale": 0.1,
+      "unit": "℃"
+    },
+    "sv": {
+      "action": "read",
+      "fc": 3,
+      "addr": 1,
+      "type": "int16",
+      "scale": 0.1,
+      "unit": "℃"
+    },
+    "mv": {
+      "action": "read",
+      "fc": 3,
+      "addr": 2,
+      "type": "int16",
+      "scale": 0.1,
+      "unit": "%"
+    },
+    "alarm": {
+      "action": "read",
+      "fc": 3,
+      "addr": 3,
+      "type": "uint16",
+      "unit": ""
+    }
+  },
+  "commands": {
+    "read_pv": {
+      "action": "read",
+      "register": "pv"
+    },
+    "read_sv": {
+      "action": "read",
+      "register": "sv"
+    },
+    "set_sv": {
+      "action": "write",
+      "register": "sv",
+      "input": "float"
+    },
+    "read_status": {
+      "action": "read",
+      "register": "pv"
+    }
+  }
+}

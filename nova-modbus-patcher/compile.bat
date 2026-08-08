@@ -1,0 +1,2 @@
+C:/Windows/Microsoft.NET/Framework/v4.0.30319/csc.exe /target:library /out:MyModbusExtension.dll src\MyModbusExtension.cs Properties\AssemblyInfo.cs /reference:EcoChemie100.dll
+C:/Windows/Microsoft.NET/Framework/v4.0.30319/csc.exe /target:exe /out:Patcher.exe src/Patcher.cs /reference:Mono.Cecil.dll

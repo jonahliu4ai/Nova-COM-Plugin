@@ -28,3 +28,13 @@ Thumbs.db
 Release/*.exe
 Release/*.dll
 Release/*.zip
+
+# 所有的编译产物
+*.exe
+*.dll
+*.zip
+
+# 编译脚本
+create-release.sh
+create-release.bat
+*.snk

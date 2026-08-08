@@ -1,0 +1,74 @@
+{
+  "name": "七星华创_CS200A",
+  "protocol": "sevenstar",
+  "default_baudrate": 9600,
+  "default_address": 32,
+  "full_scale": 100,
+  "gas_type": "N2",
+  "registers": {
+    "flow": {
+      "service": "read",
+      "class": "0x68",
+      "instance": "0x01",
+      "attribute": "0xB9",
+      "type": "ufrac16",
+      "unit": "sccm"
+    },
+    "setpoint": {
+      "service": "write",
+      "class": "0x69",
+      "instance": "0x01",
+      "attribute": "0xA4",
+      "type": "ufrac16",
+      "unit": "sccm"
+    },
+    "active_setpoint": {
+      "service": "read",
+      "class": "0x69",
+      "instance": "0x01",
+      "attribute": "0xA5",
+      "type": "ufrac16",
+      "unit": "sccm"
+    },
+    "gas_name": {
+      "service": "read",
+      "class": "0x66",
+      "instance": "0x01",
+      "attribute": "0x01",
+      "type": "string",
+      "length": 32,
+      "unit": ""
+    },
+    "full_scale": {
+      "service": "read",
+      "class": "0x66",
+      "instance": "0x01",
+      "attribute": "0x03",
+      "type": "uint16",
+      "unit": "sccm"
+    }
+  },
+  "commands": {
+    "read_flow": {
+      "action": "read",
+      "register": "flow"
+    },
+    "set_flow": {
+      "action": "write",
+      "register": "setpoint",
+      "input": "float"
+    },
+    "read_setpoint": {
+      "action": "read",
+      "register": "active_setpoint"
+    },
+    "read_gas_info": {
+      "action": "read_multi",
+      "registers": ["gas_name", "full_scale"]
+    },
+    "read_device_info": {
+      "action": "read",
+      "register": "gas_name"
+    }
+  }
+}

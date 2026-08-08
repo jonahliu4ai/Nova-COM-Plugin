@@ -1,0 +1,54 @@
+{
+  "name": "宇电_AI708",
+  "protocol": "aibus",
+  "default_baudrate": 9600,
+  "default_address": 1,
+  "registers": {
+    "pv": {
+      "action": "read",
+      "param": "0x00",
+      "type": "int16",
+      "scale": 0.1,
+      "unit": "℃"
+    },
+    "sv": {
+      "action": "read",
+      "param": "0x01",
+      "type": "int16",
+      "scale": 0.1,
+      "unit": "℃"
+    },
+    "mv": {
+      "action": "read",
+      "param": "0x02",
+      "type": "int16",
+      "scale": 0.1,
+      "unit": "%"
+    },
+    "alarm": {
+      "action": "read",
+      "param": "0x03",
+      "type": "uint16",
+      "unit": ""
+    }
+  },
+  "commands": {
+    "read_pv": {
+      "action": "read",
+      "register": "pv"
+    },
+    "read_sv": {
+      "action": "read",
+      "register": "sv"
+    },
+    "set_sv": {
+      "action": "write",
+      "register": "sv",
+      "input": "float"
+    },
+    "read_status": {
+      "action": "read",
+      "register": "pv"
+    }
+  }
+}

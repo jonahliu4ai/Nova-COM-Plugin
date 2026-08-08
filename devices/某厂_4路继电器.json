@@ -1,0 +1,45 @@
+{
+  "name": "某厂_4路继电器",
+  "protocol": "fixed-frame",
+  "default_baudrate": 9600,
+  "default_address": 0,
+  "registers": {
+    "header": {
+      "bytes": ["0xA0"],
+      "checksum": "sum8"
+    }
+  },
+  "commands": {
+    "open_ch1": {
+      "bytes": ["0xA0", "0x00", "0x00", "0x01"]
+    },
+    "open_ch2": {
+      "bytes": ["0xA0", "0x01", "0x00", "0x01"]
+    },
+    "open_ch3": {
+      "bytes": ["0xA0", "0x02", "0x00", "0x01"]
+    },
+    "open_ch4": {
+      "bytes": ["0xA0", "0x03", "0x00", "0x01"]
+    },
+    "close_ch1": {
+      "bytes": ["0xA0", "0x00", "0x00", "0x00"]
+    },
+    "close_ch2": {
+      "bytes": ["0xA0", "0x01", "0x00", "0x00"]
+    },
+    "close_ch3": {
+      "bytes": ["0xA0", "0x02", "0x00", "0x00"]
+    },
+    "close_ch4": {
+      "bytes": ["0xA0", "0x03", "0x00", "0x00"]
+    },
+    "close_all": {
+      "bytes": ["0xA0", "0xFF", "0x00", "0x00"]
+    },
+    "set_channel": {
+      "template": "0xA0,{channel},0x00,{state}",
+      "params": ["channel", "state"]
+    }
+  }
+}
