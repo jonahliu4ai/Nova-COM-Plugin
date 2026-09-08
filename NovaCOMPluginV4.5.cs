@@ -1,21 +1,22 @@
 // NovaCOMPlugin.cs
-// 版本: 4.5 Profile-Driven Device Framework
+// 版本: 4.5.1 Profile-Driven Device Framework
 // 变更:
 //   1. 新增 JSON 设备模板驱动 — 换仪器只需写 JSON，0 行 C# 改动
 //   2. 新增 ProtocolEngine 抽象层：ModbusEngine / AIBUSEngine / FixedFrameEngine / SevenStarEngine
 //   3. 新增 SmartDevice + DeviceFactory，统一创建配置化设备
 //   4. 保留 V4.4 全部代码（AIBUSDevice/ModbusDevice/SerialPortManager），向后兼容
 //   5. 设备模板目录：DLL 同级 devices/ 文件夹
+//   6. V4.5.1: 内置 JsonLite 解析器，移除 System.Web.Extensions.dll 依赖（零依赖单文件）
 //
 // 编译命令:
-//   csc.exe /target:library /out:NovaCOMPluginV4.5.dll /reference:System.Web.Extensions.dll NovaCOMPluginV4.5.cs
+//   csc.exe /target:library /out:NovaCOMPluginV4.5.dll NovaCOMPluginV4.5.cs
 
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Ports;
 using System.Text;
-using System.Web.Script.Serialization;  // 需要引用 System.Web.Extensions.dll
+using System.Globalization;
 
 namespace NovaCOMPlugin
 {
@@ -562,6 +563,327 @@ namespace NovaCOMPlugin
     }
 
     // ================================================================
+    //  V4.5.1 新增：零依赖 JSON 解析器（替代 JavaScriptSerializer）
+    //  将 JSON 解析为通用对象树：
+    //    object  → Dictionary<string, object>
+    //    array   → List<object>
+    //    string  → string
+    //    number  → double
+    //    true/false → bool
+    //    null    → null
+    // ================================================================
+    public static class JsonLite
+    {
+        public static object Parse(string json)
+        {
+            Parser p = new Parser(json);
+            p.SkipWs();
+            object v = p.ParseValue();
+            return v;
+        }
+
+        // ---------- 类型化读取辅助 ----------
+
+        public static Dictionary<string, object> AsObj(object o)
+        {
+            return o as Dictionary<string, object>;
+        }
+
+        public static string Str(Dictionary<string, object> d, string key)
+        {
+            object o;
+            if (d != null && d.TryGetValue(key, out o) && o != null)
+                return o.ToString();
+            return null;
+        }
+
+        public static int Int(Dictionary<string, object> d, string key, int def)
+        {
+            object o;
+            if (d != null && d.TryGetValue(key, out o) && o is double)
+                return (int)(double)o;
+            return def;
+        }
+
+        public static int? IntN(Dictionary<string, object> d, string key)
+        {
+            object o;
+            if (d != null && d.TryGetValue(key, out o) && o is double)
+                return (int)(double)o;
+            return null;
+        }
+
+        public static double Dbl(Dictionary<string, object> d, string key, double def)
+        {
+            object o;
+            if (d != null && d.TryGetValue(key, out o) && o is double)
+                return (double)o;
+            return def;
+        }
+
+        public static double? DblN(Dictionary<string, object> d, string key)
+        {
+            object o;
+            if (d != null && d.TryGetValue(key, out o) && o is double)
+                return (double)o;
+            return null;
+        }
+
+        public static List<string> StrList(object o)
+        {
+            var result = new List<string>();
+            var list = o as List<object>;
+            if (list == null) return result;
+            foreach (var item in list)
+            {
+                if (item == null) continue;
+                if (item is double)
+                {
+                    double dv = (double)item;
+                    if (dv == Math.Floor(dv) && Math.Abs(dv) < 1e15)
+                        result.Add(((long)dv).ToString(CultureInfo.InvariantCulture));
+                    else
+                        result.Add(dv.ToString(CultureInfo.InvariantCulture));
+                }
+                else
+                {
+                    result.Add(item.ToString());
+                }
+            }
+            return result;
+        }
+
+        // ---------- 内部递归下降解析器 ----------
+        private class Parser
+        {
+            private string _s;
+            private int _i;
+
+            public Parser(string s) { _s = s; _i = 0; }
+
+            public void SkipWs()
+            {
+                while (_i < _s.Length)
+                {
+                    char c = _s[_i];
+                    if (c == ' ' || c == '\t' || c == '\r' || c == '\n') _i++;
+                    else break;
+                }
+            }
+
+            public object ParseValue()
+            {
+                SkipWs();
+                if (_i >= _s.Length) throw new FormatException("JSON: unexpected end");
+                char c = _s[_i];
+                if (c == '{') return ParseObject();
+                if (c == '[') return ParseArray();
+                if (c == '"') return ParseString();
+                if (c == 't') { Expect("true"); return true; }
+                if (c == 'f') { Expect("false"); return false; }
+                if (c == 'n') { Expect("null"); return null; }
+                return ParseNumber();
+            }
+
+            private void Expect(string word)
+            {
+                if (_i + word.Length > _s.Length || _s.Substring(_i, word.Length) != word)
+                    throw new FormatException("JSON: expected " + word + " at " + _i);
+                _i += word.Length;
+            }
+
+            private Dictionary<string, object> ParseObject()
+            {
+                var dict = new Dictionary<string, object>();
+                _i++; // {
+                SkipWs();
+                if (_i < _s.Length && _s[_i] == '}') { _i++; return dict; }
+                while (true)
+                {
+                    SkipWs();
+                    string key = ParseString();
+                    SkipWs();
+                    if (_i >= _s.Length || _s[_i] != ':') throw new FormatException("JSON: expected ':' at " + _i);
+                    _i++;
+                    object val = ParseValue();
+                    dict[key] = val;
+                    SkipWs();
+                    if (_i < _s.Length && _s[_i] == ',') { _i++; continue; }
+                    if (_i < _s.Length && _s[_i] == '}') { _i++; break; }
+                    throw new FormatException("JSON: expected ',' or '}' at " + _i);
+                }
+                return dict;
+            }
+
+            private List<object> ParseArray()
+            {
+                var list = new List<object>();
+                _i++; // [
+                SkipWs();
+                if (_i < _s.Length && _s[_i] == ']') { _i++; return list; }
+                while (true)
+                {
+                    list.Add(ParseValue());
+                    SkipWs();
+                    if (_i < _s.Length && _s[_i] == ',') { _i++; continue; }
+                    if (_i < _s.Length && _s[_i] == ']') { _i++; break; }
+                    throw new FormatException("JSON: expected ',' or ']' at " + _i);
+                }
+                return list;
+            }
+
+            private string ParseString()
+            {
+                var sb = new StringBuilder();
+                _i++; // opening quote
+                while (_i < _s.Length)
+                {
+                    char c = _s[_i];
+                    if (c == '"') { _i++; return sb.ToString(); }
+                    if (c == '\\')
+                    {
+                        _i++;
+                        if (_i >= _s.Length) break;
+                        char e = _s[_i];
+                        switch (e)
+                        {
+                            case '"': sb.Append('"'); break;
+                            case '\\': sb.Append('\\'); break;
+                            case '/': sb.Append('/'); break;
+                            case 'b': sb.Append('\b'); break;
+                            case 'f': sb.Append('\f'); break;
+                            case 'n': sb.Append('\n'); break;
+                            case 'r': sb.Append('\r'); break;
+                            case 't': sb.Append('\t'); break;
+                            case 'u':
+                                if (_i + 4 < _s.Length)
+                                {
+                                    sb.Append((char)Convert.ToInt32(_s.Substring(_i + 1, 4), 16));
+                                    _i += 4;
+                                }
+                                break;
+                            default: sb.Append(e); break;
+                        }
+                        _i++;
+                    }
+                    else
+                    {
+                        sb.Append(c);
+                        _i++;
+                    }
+                }
+                throw new FormatException("JSON: unterminated string");
+            }
+
+            private double ParseNumber()
+            {
+                int start = _i;
+                while (_i < _s.Length)
+                {
+                    char c = _s[_i];
+                    if ((c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E')
+                        _i++;
+                    else break;
+                }
+                if (start == _i) throw new FormatException("JSON: invalid value at " + _i);
+                return double.Parse(_s.Substring(start, _i - start), CultureInfo.InvariantCulture);
+            }
+        }
+
+        // ---------- DeviceProfile 映射 ----------
+
+        public static DeviceProfile MapProfile(Dictionary<string, object> d)
+        {
+            if (d == null) return null;
+            var p = new DeviceProfile();
+            p.name = Str(d, "name");
+            p.protocol = Str(d, "protocol");
+            p.default_baudrate = Int(d, "default_baudrate", 9600);
+            p.default_address = Int(d, "default_address", 1);
+            p.full_scale = DblN(d, "full_scale");
+            p.gas_type = Str(d, "gas_type");
+
+            object regs;
+            if (d.TryGetValue("registers", out regs))
+            {
+                var rd = AsObj(regs);
+                if (rd != null)
+                {
+                    p.registers = new Dictionary<string, RegisterDef>();
+                    foreach (var kv in rd)
+                    {
+                        var item = AsObj(kv.Value);
+                        if (item != null)
+                            p.registers[kv.Key] = MapRegister(item);
+                    }
+                }
+            }
+
+            object cmds;
+            if (d.TryGetValue("commands", out cmds))
+            {
+                var cd = AsObj(cmds);
+                if (cd != null)
+                {
+                    p.commands = new Dictionary<string, CommandDef>();
+                    foreach (var kv in cd)
+                    {
+                        var item = AsObj(kv.Value);
+                        if (item != null)
+                            p.commands[kv.Key] = MapCommand(item);
+                    }
+                }
+            }
+            return p;
+        }
+
+        private static RegisterDef MapRegister(Dictionary<string, object> d)
+        {
+            var r = new RegisterDef();
+            r.action = Str(d, "action");
+            r.fc = IntN(d, "fc");
+            r.addr = IntN(d, "addr");
+            r.param = Str(d, "param");
+            r.service = Str(d, "service");
+            r.cls = Str(d, "class");
+            r.instance = Str(d, "instance");
+            r.attribute = Str(d, "attribute");
+            r.type = Str(d, "type");
+            r.scale = Dbl(d, "scale", 0);
+            r.unit = Str(d, "unit");
+            r.length = IntN(d, "length");
+
+            object bytes;
+            if (d.TryGetValue("bytes", out bytes))
+                r.bytes = StrList(bytes);
+
+            r.checksum = Str(d, "checksum");
+            return r;
+        }
+
+        private static CommandDef MapCommand(Dictionary<string, object> d)
+        {
+            var c = new CommandDef();
+            c.action = Str(d, "action");
+            c.register = Str(d, "register");
+            c.input = Str(d, "input");
+            c.addr_expr = Str(d, "addr_expr");
+            c.value = IntN(d, "value");
+
+            object prm;
+            if (d.TryGetValue("params", out prm))
+                c.@params = StrList(prm);
+
+            object bytes;
+            if (d.TryGetValue("bytes", out bytes))
+                c.bytes = StrList(bytes);
+
+            c.template = Str(d, "template");
+            return c;
+        }
+    }
+
+    // ================================================================
     //  V4.5 新增：Profile 加载器
     // ================================================================
     public static class ProfileLoader
@@ -596,8 +918,10 @@ namespace NovaCOMPlugin
             try
             {
                 string json = File.ReadAllText(path, Encoding.UTF8);
-                var serializer = new JavaScriptSerializer();
-                var profile = serializer.Deserialize<DeviceProfile>(json);
+                // V4.5.1: 使用内置 JsonLite 解析，零外部依赖
+                object root = JsonLite.Parse(json);
+                var profile = JsonLite.MapProfile(JsonLite.AsObj(root));
+                if (profile == null) return null;
                 _cache[profileName] = profile;
                 return profile;
             }
