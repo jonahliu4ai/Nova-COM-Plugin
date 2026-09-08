@@ -9,6 +9,11 @@
   - 编译命令简化为：`csc.exe /target:library /out:NovaCOMPluginV4.5.dll NovaCOMPluginV4.5.cs`（无 /reference）
   - 验证：`TestJsonLoader.exe` 加载全部 5 个 JSON 配置，16 PASS / 0 FAIL
   - 已知限制：JsonLite 仅用于解析（无序列化需求）；`read_multi` 的 registers 数组字段仍未映射（与 V4.5 行为一致）
+- **新增 `create-plugin-release.sh` 一键发布脚本**（commit `1b93645`）
+  - 流程：编译 → 检查依赖 → 打包 `dist/NovaCOMPlugin-v4.5.1.zip`（DLL + devices/）→ 可选上传 GitHub Release
+  - 用法：`./create-plugin-release.sh`（本地）/ `./create-plugin-release.sh --upload`（需 `GH_TOKEN` 环境变量）
+  - Token 从环境变量读取，不再硬编码进脚本
+  - ⚠️ 安全提醒：旧脚本 `create-release.sh` 中硬编码的 GH_TOKEN 已存在于 git 历史，建议尽快到 GitHub 撤销并重新生成
 
 ### 2026-08-26
 - **每日工作回顾扫描**：检测到 `for-ai/WORKLOG.md` 仍有未提交修改（与昨日状态一致）
