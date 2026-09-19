@@ -191,7 +191,7 @@ Nova 调用：`relay.SendCommand("set_channel channel=3,state=1")`
 
 ## 四、SevenStar 设备（CS200A 流量计）
 
-七星华创 CS200A 使用私有串口协议（类似 Allen-Bradley CIP 的简化版），JSON 需要声明 `class` / `instance` / `attribute`。
+七星华创 CS200A 使用私有串口协议（**非 Modbus RTU**，帧结构类似简化版 CIP），JSON 需要声明 `class` / `instance` / `attribute`。
 
 ### 额外根字段
 
@@ -199,6 +199,8 @@ Nova 调用：`relay.SendCommand("set_channel channel=3,state=1")`
 |------|------|
 | `full_scale` | 满量程（sccm），用于 UFRAC16 解码 |
 | `gas_type` | 默认气体类型，如 "N2" |
+| `default_baudrate` | **出厂默认 19200**（旧版配置误写 9600） |
+| `default_address` | 设备地址范围 **32–95（0x20–0x5F）**，出厂 32 |
 
 ### registers 字段
 
@@ -208,12 +210,89 @@ Nova 调用：`relay.SendCommand("set_channel channel=3,state=1")`
   "class": "0x68",         // 命令类（Class）
   "instance": "0x01",      // 实例号
   "attribute": "0xB9",     // 属性码
-  "type": "ufrac16",       // ufrac16 / uint16 / string
+  "type": "ufrac16",       // ufrac16 / ufrac16_pct / uint16 / uint8 / string
+  "scale": 0.0806,         // 仅 uint16：物理值 = raw*scale + offset（scale=0 表示原值）
+  "offset": -50,           // 仅 uint16：偏移量（如环境温度 ℃）
   "unit": "sccm"
 }
 ```
 
-> CS200A 常用 Class：`0x68`=流量, `0x69`=设定值, `0x66`=气体参数, `0x64`=设备信息
+### type 取值（SevenStar 引擎）
+
+| type | 数据格式 | 说明 |
+|------|----------|------|
+| `ufrac16` | UFRAC16 | 流量/设定值，按 `full_scale` 换算为 sccm |
+| `ufrac16_pct` | UFRAC16 | 直接以 %FS 显示/写入（软启动、关闭值） |
+| `uint16` | UINT16 | 原始值，或配 `scale`/`offset` 换算（如温度 = raw×0.0806−50） |
+| `uint8` | UINT8 | 单字节（控制模式/阀命令/调零/EEPROM/Reset） |
+| `string` | TEXTXX | ASCII 字符串（气体名称、序列号等），`length` 为总字节数 |
+
+### 常用 Class / Attribute 速查（完整表见协议文档 §5）
+
+| Class | 含义 | 常用 Attribute |
+|-------|------|----------------|
+| `0x68` | 流量读数/调零 | `0xB9` 读流量 / `0xBA` 调零(写1) |
+| `0x69` | 控制模式/设定值 | `0x03` 控制模式 / `0xA4` 数字设定 / `0xA5` 当前设定 / `0x06` EEPROM Program |
+| `0x6A` | 阀命令/软启动 | `0x01` 阀命令(0无影响/1关/2全开) / `0xA4` 软启动 / `0x91` 阀电压 |
+| `0x66` | 气体参数 | `0x01` 气体名称 / `0x03` 满量程 |
+| `0x64` | 设备信息 | `0x03` 制造商 / `0x04` 型号 / `0x07` 序列号 |
+| `0x65` | 报警 | `0xA0` 读报警位图 |
+| `0xA3` | 环境温度 | `0x07`（T = raw×0.0806−50 ℃） |
+| `0x03` | RS485 配置 | `0x03` 复位(写1) |
+
+### 完整示例（七星华创_CS200A.json）
+
+```json
+{
+  "name": "七星华创_CS200A",
+  "protocol": "sevenstar",
+  "default_baudrate": 19200,
+  "default_address": 32,
+  "full_scale": 100,
+  "gas_type": "N2",
+  "registers": {
+    "flow":     { "service": "read",  "class": "0x68", "instance": "0x01", "attribute": "0xB9", "type": "ufrac16", "unit": "sccm" },
+    "setpoint": { "service": "write", "class": "0x69", "instance": "0x01", "attribute": "0xA4", "type": "ufrac16", "unit": "sccm" },
+    "control_mode":      { "service": "read",  "class": "0x69", "instance": "0x01", "attribute": "0x03", "type": "uint8", "unit": "" },
+    "control_mode_write":{ "service": "write", "class": "0x69", "instance": "0x01", "attribute": "0x03", "type": "uint8", "unit": "" },
+    "temperature": { "service": "read", "class": "0xA3", "instance": "0x01", "attribute": "0x07", "type": "uint16", "scale": 0.0806, "offset": -50, "unit": "℃" }
+  },
+  "commands": {
+    "read_flow":        { "action": "read",  "register": "flow" },
+    "set_flow":         { "action": "write", "register": "setpoint", "input": "float" },
+    "read_control_mode":{ "action": "read",  "register": "control_mode" },
+    "set_control_mode": { "action": "write", "register": "control_mode_write", "input": "int" },
+    "read_temperature": { "action": "read",  "register": "temperature" },
+    "read_gas_info":    { "action": "read_multi", "registers": ["gas_name", "full_scale"] }
+  }
+}
+```
+
+> ⚠️ 读写分离寄存器：同一 Attribute 读和写要用两个寄存器名（如 `control_mode` / `control_mode_write`），
+> 因为 SevenStar 读帧 DataLen=3、写帧 DataLen=4，引擎按 `service` 组帧。
+
+### Nova 脚本调用（首次使用必读）
+
+```csharp
+SerialPortManager.Open("COM3", "19200");           // 出厂波特率 19200，不是 9600
+SmartDevice mfc = new SmartDevice("七星华创_CS200A", "32");
+if (mfc.ProfileName == null) { Console.WriteLine("配置加载失败"); return; }
+
+// 出厂控制模式是模拟电压模式（0~5V），数字设定值无效！
+string cm = mfc.SendCommand("read_control_mode");   // VALUE=2 = 模拟电压模式
+if (cm.Contains("VALUE=2")) {
+    mfc.SendCommand("set_control_mode 1");          // 切数字模式
+    mfc.SendCommand("eeprom_program 1");            // 写入 EEPROM
+    mfc.SendCommand("reset 1");                     // 重启后永久生效
+}
+
+mfc.SendCommand("set_flow 50.0");                   // 设 50 sccm
+string r = mfc.SendCommand("read_flow");            // VALUE=49.8xxsccm
+mfc.SendCommand("set_valve 2");                     // 阀全开 = 清洗
+mfc.SendCommand("set_valve 1");                     // 阀关闭
+```
+
+> 固定值命令（如 `zero 1`、`reset 1`、`eeprom_program 1`）的 `1` 是参数，不能省略。
 
 ---
 
@@ -341,3 +420,196 @@ if (dev.ProfileName == null)
 | `华控_8路继电器.json` | modbus-rtu | Modbus 继电器 |
 | `某厂_4路继电器.json` | fixed-frame | 固定帧继电器 |
 | `七星华创_CS200A.json` | sevenstar | 质量流量计 |
+
+---
+
+## 九、ComComMiddleware 设备 JSON 快速说明
+
+这一节专门说明 `ComComMiddleware` 的设备 JSON 写法，适合你后续新增 `fixed-frame` 或 `custom` 设备。
+
+### 1. 顶层结构
+
+```json
+{
+  "name": "Sample_FixedFrame",
+  "protocol": "fixed-frame",
+  "default_baudrate": 9600,
+  "default_address": 1,
+  "registers": { ... },
+  "commands": { ... }
+}
+```
+
+- `name`：设备名，发送命令时用它选择配置。
+- `protocol`：协议类型。
+  - `modbus-rtu`
+  - `fixed-frame`
+  - `custom`
+  - `sevenstar`
+- `default_baudrate`：默认波特率。
+- `default_address`：默认地址。
+- `registers`：可选，放寄存器/帧片段定义。
+- `commands`：必填，定义具体命令。
+
+### 2. 手动发送命令格式
+
+手动发送栏支持两种常用格式：
+
+#### KV 格式
+
+```text
+DEVICE=<name>;ADDR=<addr>;CMD=<command> [params...]
+```
+
+示例：
+
+```text
+DEVICE=Sample_FixedFrame;ADDR=1;CMD=open_ch N=3 state=1
+```
+
+#### @ 简写格式
+
+```text
+@<name> <command> [params...]
+```
+
+示例：
+
+```text
+@Sample_FixedFrame open_ch N=3 state=1
+```
+
+参数写法统一是 `key=value`，多个参数之间用空格分隔即可。
+
+### 3. fixed-frame 命令写法
+
+`fixed-frame` 适合“发固定字节就动作”的设备。
+
+#### bytes 方式
+
+```json
+"ping": {
+  "bytes": ["A0", "00", "00", "00"],
+  "response_mode": "none"
+}
+```
+
+- `bytes` 里的每个元素会按十六进制字节发送。
+- `response_mode: "none"` 表示发送后不等回复。
+
+#### template 方式
+
+```json
+"open_ch": {
+  "template": "0xA0,{N},0x00,0x01",
+  "params": ["N", "state"]
+}
+```
+
+- `template` 里用逗号分隔字段。
+- 固定字节可以写成 `A0`、`0xA0` 这种形式。
+- 参数用 `{N}`、`{state}` 这种占位符。
+- `params` 用来说明这个命令需要哪些参数。
+
+#### checksum
+
+如果需要尾部校验，可以在 `registers` 中写：
+
+```json
+"registers": {
+  "header": {
+    "bytes": ["0xA0"],
+    "checksum": "sum8"
+  }
+}
+```
+
+支持的校验值：
+
+- `sum8`
+- `xor8`
+- `none`
+
+### 4. custom 命令写法
+
+`custom` 适合你要精确控制每个字节，但又希望参数更严格的情况。
+
+```json
+"echo_hex": {
+  "send": "AA 55 02 {d1:u8} {d2:u8} {d3:u8} {d4:u8} {d5:u8}",
+  "response_mode": "text",
+  "response_parse": "text"
+}
+```
+
+#### 规则
+
+- 普通 token，例如 `AA`、`55`、`02`，会被当成**固定字节**发送。
+- `{name:u8}` 表示参数必须是一个字节：
+  - 允许 `0` 到 `255`
+  - 也允许十六进制写法，比如 `0x68`
+- 如果参数非法，会返回：
+  - `ERR:CustomParse:<token>`
+
+#### 发送示例
+
+```text
+DEVICE=Sample_Custom;ADDR=1;CMD=ping
+DEVICE=Sample_Custom;ADDR=1;CMD=echo_hex d1=104 d2=101 d3=108 d4=108 d5=111
+```
+
+### 5. Sample_FixedFrame 示例
+
+当前仓库自带的 `Sample_FixedFrame.json` 可以这样理解：
+
+```json
+{
+  "name": "Sample_FixedFrame",
+  "protocol": "fixed-frame",
+  "default_baudrate": 9600,
+  "default_address": 1,
+  "registers": {
+    "header": { "bytes": ["0xA0"], "checksum": "sum8" }
+  },
+  "commands": {
+    "open_ch": { "template": "0xA0,{N},0x00,0x01", "params": ["N", "state"] },
+    "close_ch": { "template": "0xA0,{N},0x00,0x00", "params": ["N", "state"] },
+    "ping": { "bytes": ["A0", "00", "00", "00"], "response_mode": "none" }
+  }
+}
+```
+
+对应命令：
+
+- `@Sample_FixedFrame ping`
+- `@Sample_FixedFrame open_ch N=3 state=1`
+- `@Sample_FixedFrame close_ch N=3 state=0`
+
+### 6. 新设备建议写法
+
+如果你要自己写一个新设备 JSON，建议按这个顺序：
+
+1. 先确认协议是 `modbus-rtu`、`fixed-frame`、`custom` 还是 `sevenstar`。
+2. 再确认默认波特率和默认地址。
+3. 写 `registers`：
+   - 固定帧设备可以放校验和固定头。
+   - 自定义协议可放共享片段。
+4. 写 `commands`：
+   - 每个功能对应一个命令名。
+   - 命令里尽量只保留最必要的字段。
+5. 保存到 `devices/` 目录。
+6. 打开程序后在 UI 里把 Config Directory 指到这个目录，点击 Load。
+7. 用手动发送栏测试：
+   - 先发 `ping`
+   - 再发读命令
+   - 最后发写命令
+
+### 7. 常见注意点
+
+- JSON 文件里不要写注释。
+- 十六进制字节可以写成 `A0` 或 `0xA0`。
+- 参数名区分大小写时，最好统一用小写或固定格式。
+- `custom` 的 `{name:u8}` 是严格字节输入，超范围会报错。
+- `response_mode: "none"` 的命令不会等待回复。
+
+如果你愿意，我下一步可以直接帮你把这份说明整理成一版更正式的 `devices/README.md` 排版，或者我可以顺手再给你补一个 `Sample_Custom.json` 的完整注释版。

@@ -531,7 +531,8 @@ namespace NovaCOMPlugin
         public string instance { get; set; }     // SevenStar Instance
         public string attribute { get; set; }    // SevenStar Attribute
         public string type { get; set; }         // uint16 / int16 / float / ufrac16 / string
-        public double scale { get; set; }        // 缩放系数
+        public double scale { get; set; }        // 缩放系数（uint16: 物理值 = raw*scale + offset）
+        public double offset { get; set; }       // 偏移量（如环境温度: scale=0.0806, offset=-50）
         public string unit { get; set; }
         public int? length { get; set; }         // string 长度
         public List<string> bytes { get; set; }  // FixedFrame 固定字节
@@ -548,6 +549,7 @@ namespace NovaCOMPlugin
         public List<string> @params { get; set; } // 参数名列表
         public List<string> bytes { get; set; }  // FixedFrame 固定字节序列
         public string template { get; set; }     // FixedFrame 模板
+        public List<string> registers { get; set; } // read_multi 关联的寄存器名数组
     }
 
     public class DeviceProfile
@@ -850,6 +852,7 @@ namespace NovaCOMPlugin
             r.attribute = Str(d, "attribute");
             r.type = Str(d, "type");
             r.scale = Dbl(d, "scale", 0);
+            r.offset = Dbl(d, "offset", 0);
             r.unit = Str(d, "unit");
             r.length = IntN(d, "length");
 
@@ -879,6 +882,10 @@ namespace NovaCOMPlugin
                 c.bytes = StrList(bytes);
 
             c.template = Str(d, "template");
+
+            object regs;
+            if (d.TryGetValue("registers", out regs))
+                c.registers = StrList(regs);
             return c;
         }
     }
@@ -1489,10 +1496,19 @@ namespace NovaCOMPlugin
                     if (!float.TryParse(args, out val)) return "ERR:ValueFmt";
                     return SevenStarWrite(reg, val);
                 }
-                if (cmdDef.action == "read_multi" && cmdDef.register != null)
+                if (cmdDef.action == "read_multi")
                 {
-                    // 简化：逐个读取
-                    return "ERR:NotImpl";
+                    // V4.5.2: 逐个读取并拼接结果（JSON 用 "registers" 数组声明）
+                    var names = (cmdDef.registers != null && cmdDef.registers.Count > 0)
+                        ? cmdDef.registers
+                        : new List<string> { cmdDef.register };
+                    var sb = new System.Text.StringBuilder();
+                    foreach (var rname in names)
+                    {
+                        if (rname == null || !Profile.registers.ContainsKey(rname)) continue;
+                        sb.Append(rname).Append('=').Append(SevenStarRead(Profile.registers[rname])).Append(';');
+                    }
+                    return sb.Length > 0 ? sb.ToString() : "ERR:NoReg";
                 }
             }
 
@@ -1558,7 +1574,7 @@ namespace NovaCOMPlugin
             byte cls = (byte)ParseHexOrInt(reg.cls ?? "0x00");
             byte inst = (byte)ParseHexOrInt(reg.instance ?? "0x01");
             byte attr = (byte)ParseHexOrInt(reg.attribute ?? "0x00");
-            return SevenStarReadDirect(cls, inst, attr, reg.type, reg.unit);
+            return SevenStarReadDirect(cls, inst, attr, reg.type, reg.unit ?? "", reg.scale, reg.offset);
         }
 
         private string SevenStarWrite(RegisterDef reg, float val)
@@ -1566,7 +1582,7 @@ namespace NovaCOMPlugin
             byte cls = (byte)ParseHexOrInt(reg.cls ?? "0x00");
             byte inst = (byte)ParseHexOrInt(reg.instance ?? "0x01");
             byte attr = (byte)ParseHexOrInt(reg.attribute ?? "0x00");
-            return SevenStarWriteDirect(cls, inst, attr, val, reg.type);
+            return SevenStarWriteDirect(cls, inst, attr, val, reg.type, reg.scale, reg.offset);
         }
 
         private byte[] SevenStarReadRaw(RegisterDef reg)
@@ -1581,7 +1597,7 @@ namespace NovaCOMPlugin
             port.Write(frame, 0, frame.Length);
             byte[] header = new byte[5];
             if (port.Read(header, 0, 5) < 5) return null;
-            byte dataLen = header[3];
+            byte dataLen = header[4];  // 5字节帧头=[ACK,Addr,STX,Service,DataLen]，DataLen 在索引4（旧代码误用索引3=Service，真机必超时）
             int total = 5 + dataLen + 2;
             int remaining = total - 5;
             if (remaining <= 0) return null;
@@ -1596,7 +1612,7 @@ namespace NovaCOMPlugin
         }
 
         // ---- 硬编码读写（回退） ----
-        private string SevenStarReadDirect(byte cls, byte inst, byte attr, string dataType, string unit)
+        private string SevenStarReadDirect(byte cls, byte inst, byte attr, string dataType, string unit, double scale = 0, double offset = 0)
         {
             var frame = BuildFrame(SERVICE_READ, 3, cls, inst, attr, new byte[0]);
             SerialPort port = SerialPortManager.GetPort();
@@ -1606,7 +1622,7 @@ namespace NovaCOMPlugin
 
             byte[] header = new byte[5];
             if (port.Read(header, 0, 5) < 5) return "ERR:NoRsp";
-            byte dataLen = header[3];
+            byte dataLen = header[4];  // 5字节帧头=[ACK,Addr,STX,Service,DataLen]，DataLen 在索引4（旧代码误用索引3=Service，真机必超时）
             int total = 5 + dataLen + 2;
             int remaining = total - 5;
             if (remaining <= 0) return "ERR:BadHdr";
@@ -1618,6 +1634,19 @@ namespace NovaCOMPlugin
 
             var parsed = ParseResponseFrame(full);
             if (!parsed.ok) return "ERR:" + parsed.error;
+
+            // string 类型：整个数据区为 ASCII（隐含 NULL 结尾）
+            if (dataType == "string")
+            {
+                string s = System.Text.Encoding.ASCII.GetString(parsed.data).TrimEnd('\0').Trim();
+                return "VALUE=" + s;
+            }
+            // uint8 类型：控制模式/阀命令/阀类型等单字节响应（DataLen=4）
+            if (dataType == "uint8")
+            {
+                if (parsed.data.Length < 1) return "ERR:NoData";
+                return "VALUE=" + parsed.data[0] + unit;
+            }
             if (parsed.data.Length < 2) return "ERR:NoData";
 
             ushort raw = (ushort)(parsed.data[0] | (parsed.data[1] << 8));
@@ -1628,8 +1657,20 @@ namespace NovaCOMPlugin
                 float sccm = percent / 100f * _fullScale;
                 return "VALUE=" + sccm.ToString("F3") + unit + ",RAW=" + raw + ",PCT=" + percent.ToString("F2");
             }
+            else if (dataType == "ufrac16_pct")
+            {
+                // 以 %FS 直接显示（软启动/关闭值等，不经 full_scale 换算）
+                float percent = UFrac16ToPercent(raw);
+                return "VALUE=" + percent.ToString("F2") + unit + ",RAW=" + raw;
+            }
             else if (dataType == "uint16")
             {
+                // scale/offset 支持：物理值 = raw*scale + offset（scale=0 表示原值）
+                if (scale != 0)
+                {
+                    double v = raw * scale + offset;
+                    return "VALUE=" + v.ToString("F2") + unit + ",RAW=" + raw;
+                }
                 return "VALUE=" + raw + unit;
             }
             else
@@ -1638,7 +1679,7 @@ namespace NovaCOMPlugin
             }
         }
 
-        private string SevenStarWriteDirect(byte cls, byte inst, byte attr, float val, string dataType)
+        private string SevenStarWriteDirect(byte cls, byte inst, byte attr, float val, string dataType, double scale = 0, double offset = 0)
         {
             byte[] data;
             if (dataType == "ufrac16")
@@ -1647,21 +1688,45 @@ namespace NovaCOMPlugin
                 ushort raw = PercentToUFrac16(percent);
                 data = new byte[] { (byte)(raw & 0xFF), (byte)((raw >> 8) & 0xFF) };
             }
+            else if (dataType == "ufrac16_pct")
+            {
+                // 输入即 %FS（软启动/关闭值），直接编码
+                ushort raw = PercentToUFrac16(val);
+                data = new byte[] { (byte)(raw & 0xFF), (byte)((raw >> 8) & 0xFF) };
+            }
+            else if (dataType == "uint8")
+            {
+                // 单字节写（控制模式/阀命令/调零/EEPROM/Reset 等，DataLen=4）
+                data = new byte[] { (byte)(int)val };
+            }
             else
             {
-                ushort raw = (ushort)val;
+                // uint16 等双字节写；声明 scale 时按 物理值→原始值 反算
+                ushort raw = (ushort)(int)((scale != 0) ? ((val - offset) / scale) : val);
                 data = new byte[] { (byte)(raw & 0xFF), (byte)((raw >> 8) & 0xFF) };
             }
 
-            var frame = BuildFrame(SERVICE_WRITE, (byte)(5 + data.Length), cls, inst, attr, data);
+            // DataLen = Class+Instance+Attribute+Data+Pad 长度 = 3 + data.Length（旧代码误写 5 + data.Length）
+            var frame = BuildFrame(SERVICE_WRITE, (byte)(3 + data.Length), cls, inst, attr, data);
             SerialPort port = SerialPortManager.GetPort();
             if (port == null) return "ERR:NoPort";
             port.DiscardInBuffer(); System.Threading.Thread.Sleep(50);
             port.Write(frame, 0, frame.Length);
 
-            byte[] resp = new byte[5];
-            if (port.Read(resp, 0, 5) < 5) return "ERR:NoRsp";
-            if (resp[0] != ACK_OK) return "ERR:NAK";
+            // 完整读响应：ACK(1) + 帧头(4) + 数据(DataLen) + Pad(1) + CheckSum(1)
+            byte[] respAck = new byte[1];
+            if (port.Read(respAck, 0, 1) < 1) return "ERR:NoRsp";
+            if (respAck[0] == ACK_ERR) return "ERR:NAK";
+            if (respAck[0] != ACK_OK) return "ERR:BadACK";
+            byte[] respHdr = new byte[4];
+            if (port.Read(respHdr, 0, 4) < 4) return "ERR:Incomplete";
+            int respRemaining = respHdr[3] + 2;
+            byte[] respRest = new byte[respRemaining];
+            if (port.Read(respRest, 0, respRemaining) < respRemaining) return "ERR:Incomplete";
+            byte[] respFull = new byte[5 + respRemaining];
+            respFull[0] = respAck[0]; Array.Copy(respHdr, 0, respFull, 1, 4); Array.Copy(respRest, 0, respFull, 5, respRemaining);
+            var parsed = ParseResponseFrame(respFull);
+            if (!parsed.ok) return "ERR:" + parsed.error;
             return "OK";
         }
 
@@ -1700,8 +1765,8 @@ namespace NovaCOMPlugin
             byte recv = raw[raw.Length - 1];
             if (calc != recv) return new ParsedResponse { ok = false, error = "Checksum" };
 
-            // 数据：attr 之后(索引7) 到 pad 之前
-            int dataStart = 7;
+            // 数据：attr 之后(索引8) 到 pad 之前（旧代码误用索引7，会把 Attribute 当成数据）
+            int dataStart = 8;
             int dataEnd = raw.Length - 2;
             int dataLen = dataEnd - dataStart;
             if (dataLen <= 0) return new ParsedResponse { ok = true, data = new byte[0], error = "" };
@@ -1804,7 +1869,8 @@ namespace NovaCOMPlugin
             if (_profile == null) return addr >= 1 && addr <= 247;
             string p = _profile.protocol.ToLower();
             if (p == "aibus") return addr >= 1 && addr <= 80;
-            if (p == "sevenstar" || p == "7star" || p == "cs200a") return addr >= 1 && addr <= 95;
+            // 七星协议设备地址范围 0x20~0x5F (32~95)，协议 §3.2
+            if (p == "sevenstar" || p == "7star" || p == "cs200a") return addr >= 32 && addr <= 95;
             if (p == "fixed-frame" || p == "fixedframe") return addr >= 0 && addr <= 255;
             // modbus-rtu 及其他
             return addr >= 1 && addr <= 247;
@@ -1815,7 +1881,7 @@ namespace NovaCOMPlugin
             if (_profile == null) return "1-247";
             string p = _profile.protocol.ToLower();
             if (p == "aibus") return "1-80";
-            if (p == "sevenstar" || p == "7star" || p == "cs200a") return "1-95";
+            if (p == "sevenstar" || p == "7star" || p == "cs200a") return "32-95";
             if (p == "fixed-frame" || p == "fixedframe") return "0-255";
             return "1-247";
         }

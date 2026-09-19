@@ -1,0 +1,77 @@
+--- a/ComComMiddleware.cs
++++ b/ComComMiddleware.cs
+@@ public class CustomEngine : ProtocolEngineBase
+-                if (!string.IsNullOrWhiteSpace(def.send))
+-                {
+-                    frame = BuildSendTemplate(def.send, map);
+-                }
++                if (!string.IsNullOrWhiteSpace(def.send))
++                {
++                    try
++                    {
++                        frame = BuildSendTemplate(def.send, map);
++                    }
++                    catch (Exception ex)
++                    {
++                        // ex.Message format: "CustomParse:{token}:{value}"
++                        var parts = ex.Message.Split(new[] { ':' }, 3);
++                        var token = parts.Length >= 2 ? parts[1] : string.Empty;
++                        var val = parts.Length == 3 ? parts[2] : string.Empty;
++                        Log($"CustomEngine: token '{token}' parse error on value '{val}'");
++                        return $"ERR:CustomParse:{token}";
++                    }
++                }
+@@
+-        private byte[] BuildSendTemplate(string send, Dictionary<string, string> map)
+-        {
+-            string text = send.Replace("{addr}", Address.ToString()).Replace("{address}", Address.ToString()).Replace("{ADDR}", Address.ToString());
+-            if (map != null)
+-            {
+-                foreach (KeyValuePair<string, string> kv in map)
+-                {
+-                    text = text.Replace("{" + kv.Key + "}", kv.Value);
+-                }
+-            }
+-
+-            return HexUtil.ParseHexBytes(Regex.Replace(text, "\\s+", ""));
+-        }
++        private byte[] BuildSendTemplate(string send, Dictionary<string, string> map)
++        {
++            var segments = send.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
++            var bytes = new List<byte>();
++            foreach (var seg in segments)
++            {
++                if (seg.StartsWith("{") && seg.EndsWith("}"))
++                {
++                    // parameter token e.g. {addr:u8}
++                    var inner = seg.Substring(1, seg.Length - 2);
++                    var parts = inner.Split(':');
++                    if (parts.Length == 2 && parts[1].Equals("u8", StringComparison.OrdinalIgnoreCase))
++                    {
++                        var key = parts[0];
++                        var val = map != null && map.ContainsKey(key) ? map[key] : string.Empty;
++                        if (!byte.TryParse(val, out byte b))
++                            throw new Exception($"CustomParse:{key}:{val}");
++                        bytes.Add(b);
++                    }
++                    else
++                    {
++                        // unsupported placeholder
++                        throw new Exception($"CustomParse:{inner}:{inner}");
++                    }
++                }
++                else
++                {
++                    // fixed hex token
++                    try
++                    {
++                        bytes.AddRange(HexUtil.ParseHexBytes(seg));
++                    }
++                    catch
++                    {
++                        throw new Exception($"CustomParse:{seg}:{seg}");
++                    }
++                }
++            }
++            return bytes.ToArray();
++        }

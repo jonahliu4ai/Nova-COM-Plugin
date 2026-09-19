@@ -1,0 +1,14 @@
+﻿{
+  "name": "Sample_Modbus",
+  "protocol": "modbus-rtu",
+  "default_baudrate": 9600,
+  "default_address": 1,
+  "registers": {
+    "pv": { "fc": 3, "addr": 0, "type": "int16", "scale": 0.1, "unit": "℃" },
+    "sv": { "fc": 3, "addr": 1, "type": "int16", "scale": 0.1, "unit": "℃" }
+  },
+  "commands": {
+    "read_pv": { "action": "read", "register": "pv" },
+    "set_sv": { "action": "write", "register": "sv", "input": "float" }
+  }
+}

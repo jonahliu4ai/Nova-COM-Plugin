@@ -1,0 +1,18 @@
+﻿{
+  "name": "Sample_Custom",
+  "protocol": "custom",
+  "default_baudrate": 9600,
+  "default_address": 1,
+  "commands": {
+    "ping": {
+      "send": "AA 55 01 {addr:u8}",
+      "response_mode": "text",
+      "response_parse": "text"
+    },
+    "echo_hex": {
+      "send": "AA 55 02 {d1:u8} {d2:u8} {d3:u8} {d4:u8} {d5:u8}",
+      "response_mode": "text",
+      "response_parse": "text"
+    }
+  }
+}

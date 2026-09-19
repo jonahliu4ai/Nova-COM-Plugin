@@ -1,0 +1,14 @@
+﻿{
+  "name": "Sample_FixedFrame",
+  "protocol": "fixed-frame",
+  "default_baudrate": 9600,
+  "default_address": 1,
+  "registers": {
+    "header": { "bytes": ["0xA0"], "checksum": "sum8" }
+  },
+  "commands": {
+    "open_ch": { "template": "0xA0,{N},0x00,0x01", "params": ["N", "state"] },
+    "close_ch": { "template": "0xA0,{N},0x00,0x00", "params": ["N", "state"] },
+    "ping": { "bytes": ["A0", "00", "00", "00"], "response_mode": "none" }
+  }
+}

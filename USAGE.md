@@ -100,7 +100,15 @@ TestIntegration.exe
 ```
 期望：16 PASS / 1 FAIL。唯一的 FAIL（SV=6400.0 vs 25.0）是 MockDevice 的模拟字节序显示问题，**真实 AI-518 无此问题**（V4.3 实测验证过 PV/10 正确），且 V4.4 兼容路径返回相同值，行为一致。
 
-### 测试 3：状态机/连续控制（纯逻辑，Mock 设备）
+### 测试 3：SevenStar 引擎联调（COM0COM，无需真实 MFC）
+
+```batch
+cd D:\src\nova-com-plugin
+TestSevenStar.exe
+```
+模拟从机按官方协议示例（0x4F3D=11.9%FS 等）应答，验证组帧/校验/DataLen 解析。期望 6 PASS / 0 FAIL。
+
+### 测试 4：状态机/连续控制（纯逻辑，Mock 设备）
 
 ```batch
 TestContinuousV2.exe
@@ -117,16 +125,16 @@ TestContinuousV2.exe
 | 本地打包 | `create-plugin-release.sh` |
 | 打包+上传 | `create-plugin-release.sh --upload`（需 `GH_TOKEN`） |
 | 跑全部 JSON 测试 | `TestJsonLoader.exe` |
+| SevenStar 引擎联调 | `TestSevenStar.exe`（COM0COM COM7↔COM8） |
 | 串口联调 | `MockDevice.exe COM8` + `TestIntegration.exe` |
 
 ---
 
 ## 四、已知限制
 
-1. **SevenStar 协议**：MockDevice 不支持，联调时 `read_flow` 返回 `ERR:Incomplete` 属预期；需真实 CS200A 验证。
-2. **read_multi**：`CommandDef.registers` 数组字段暂未映射（V4.5 起未实现），`read_gas_info` 暂不可用。
-3. **FixedFrame 无响应设备**：返回 `OK|NoRsp`，调用方需知晓。
+1. **SevenStar 协议**：MockDevice 不支持，需真实 CS200A 验证；但可用 COM0COM 虚拟串口对跑 `TestSevenStar.exe`（模拟从机按官方协议示例应答，6 PASS / 0 FAIL）。
+2. **FixedFrame 无响应设备**：返回 `OK|NoRsp`，调用方需知晓。
 
 ---
 
-*最后更新：2026-09-08（V4.5.1）*
+*最后更新：2026-09-08（V4.5.2，SevenStar 引擎修复：DataLen 索引、写帧长度、数据区偏移、uint8/string/scale 支持、read_multi 实现）*
