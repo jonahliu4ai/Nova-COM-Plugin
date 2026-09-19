@@ -44,10 +44,10 @@ namespace ComComMiddleware
             Text = "Nova COM2COM Middleware";
             Width = 1040;
             Height = 840;
+            MinimumSize = new Size(860, 640);
             StartPosition = FormStartPosition.CenterScreen;
             Font = new Font("Microsoft YaHei UI", 10f);
-            AutoScaleMode = AutoScaleMode.None;
-            AutoScaleDimensions = new SizeF(96F, 96F);
+            AutoScaleMode = AutoScaleMode.Font;
 
             BuildUi();
 
@@ -89,42 +89,120 @@ namespace ComComMiddleware
 
         private void BuildUi()
         {
-            const int leftPad = 10;
-            const int rowGap = 14;
-            const int gWidth = 1010;
+            var root = new TableLayoutPanel();
+            root.Dock = DockStyle.Fill;
+            root.RowCount = 4;
+            root.ColumnCount = 1;
+            root.Padding = new Padding(8);
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            Controls.Add(root);
 
-            var topPanel = new Panel();
-            topPanel.Dock = DockStyle.Top;
-            topPanel.Height = 250;
-            topPanel.Padding = new Padding(0, 0, 0, 4);
-            Controls.Add(topPanel);
+            // Row 0: top COM / config groups
+            var topRow = BuildTopRow();
+            root.Controls.Add(topRow, 0, 0);
 
-            var gA = CreateGroup("Uplink (Nova) COM", leftPad, rowGap, 300, 190);
-            gA.Controls.Add(MakeLabel("COM-A", 10, 10));
-            _cmbComA = CreateCombo(120, 40);
-            gA.Controls.Add(MakeLabel("Baud", 10, 80));
-            _cmbBaudA = CreateCombo(120, 108, new string[] { "9600", "19200", "38400", "115200" });
-            gA.Controls.Add(_cmbComA);
-            gA.Controls.Add(_cmbBaudA);
-            gA.Controls.Add(CreateButton("Refresh", 120, 150, 120, 36, RefreshPorts));
+            // Row 1: manual send
+            var sendRow = BuildManualSendRow();
+            root.Controls.Add(sendRow, 0, 1);
 
-            var gB = CreateGroup("Downlink (Device) COM", 320, rowGap, 300, 190);
-            gB.Controls.Add(MakeLabel("COM-B", 10, 10));
-            _cmbComB = CreateCombo(120, 40);
-            gB.Controls.Add(MakeLabel("Baud", 10, 80));
-            _cmbBaudB = CreateCombo(120, 108, new string[] { "9600", "19200", "38400", "115200" });
-            gB.Controls.Add(_cmbComB);
-            gB.Controls.Add(_cmbBaudB);
+            // Row 2: profiles + log
+            var middleRow = BuildMiddleRow();
+            root.Controls.Add(middleRow, 0, 2);
 
-            var gCfg = CreateGroup("Config Directory", 630, rowGap, 320, 190);
-            gCfg.Controls.Add(MakeLabel("Folder", 10, 10));
+            // Row 3: status
+            _lblStatus = new Label();
+            _lblStatus.Dock = DockStyle.Fill;
+            _lblStatus.Height = 28;
+            _lblStatus.Font = this.Font;
+            _lblStatus.Text = "Stopped";
+            _lblStatus.ForeColor = Color.DarkBlue;
+            _lblStatus.TextAlign = ContentAlignment.MiddleLeft;
+            root.Controls.Add(_lblStatus, 0, 3);
+        }
+
+        private TableLayoutPanel BuildTopRow()
+        {
+            var top = new TableLayoutPanel();
+            top.Dock = DockStyle.Fill;
+            top.ColumnCount = 3;
+            top.RowCount = 1;
+            top.Padding = new Padding(0, 0, 0, 4);
+            top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33f));
+            top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33f));
+            top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34f));
+            top.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            top.Height = 230;
+
+            var gA = CreateGroup("Uplink (Nova) COM");
+            var gB = CreateGroup("Downlink (Device) COM");
+            var gCfg = CreateGroup("Config Directory");
+
+            top.Controls.Add(gA, 0, 0);
+            top.Controls.Add(gB, 1, 0);
+            top.Controls.Add(gCfg, 2, 0);
+
+            FillComGroup(gA, out _cmbComA, out _cmbBaudA, true);
+            FillComGroup(gB, out _cmbComB, out _cmbBaudB, false);
+            FillConfigGroup(gCfg);
+
+            return top;
+        }
+
+        private void FillComGroup(GroupBox group, out ComboBox comBox, out ComboBox baudBox, bool withRefresh)
+        {
+            var layout = new TableLayoutPanel();
+            layout.Dock = DockStyle.Fill;
+            layout.ColumnCount = 2;
+            layout.RowCount = 4;
+            layout.Padding = new Padding(6, 8, 6, 6);
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            for (int i = 0; i < 4; i++)
+                layout.RowStyles.Add(new RowStyle(SizeType.Percent, 25f));
+            group.Controls.Add(layout);
+
+            comBox = CreateCombo();
+            baudBox = CreateCombo(new string[] { "9600", "19200", "38400", "115200" });
+
+            layout.Controls.Add(MakeLabel("COM"), 0, 0);
+            layout.Controls.Add(comBox, 1, 0);
+            layout.Controls.Add(MakeLabel("Baud"), 0, 1);
+            layout.Controls.Add(baudBox, 1, 1);
+
+            if (withRefresh)
+            {
+                var btnRefresh = CreateButton("Refresh", RefreshPorts);
+                btnRefresh.Dock = DockStyle.Fill;
+                btnRefresh.Margin = new Padding(2, 6, 2, 2);
+                layout.Controls.Add(btnRefresh, 0, 3);
+                layout.SetColumnSpan(btnRefresh, 2);
+            }
+        }
+
+        private void FillConfigGroup(GroupBox group)
+        {
+            var layout = new TableLayoutPanel();
+            layout.Dock = DockStyle.Fill;
+            layout.ColumnCount = 3;
+            layout.RowCount = 4;
+            layout.Padding = new Padding(6, 8, 6, 6);
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            for (int i = 0; i < 4; i++)
+                layout.RowStyles.Add(new RowStyle(SizeType.Percent, 25f));
+            group.Controls.Add(layout);
+
+            layout.Controls.Add(MakeLabel("Folder"), 0, 0);
             _txtConfigDir = new TextBox();
-            _txtConfigDir.Left = 12;
-            _txtConfigDir.Top = 40;
-            _txtConfigDir.Width = 190;
+            _txtConfigDir.Dock = DockStyle.Fill;
             StyleTextInput(_txtConfigDir);
-            _txtConfigDir.TextAlign = HorizontalAlignment.Left;
-            var btnBrowse = CreateButton("...", 207, 40, 40, 34, delegate()
+            layout.Controls.Add(_txtConfigDir, 0, 1);
+
+            var btnBrowse = CreateButton("...", delegate()
             {
                 using (var fd = new FolderBrowserDialog())
                 {
@@ -139,105 +217,140 @@ namespace ComComMiddleware
                     }
                 }
             });
-            _btnReload = CreateButton("Load", 250, 40, 60, 34, LoadProfiles);
-            var btnSamples = CreateButton("Samples", 250, 80, 60, 34, CreateSamples);
-            _btnConnect = CreateButton("Start", 10, 120, 120, 40, ToggleConnect);
+            btnBrowse.Dock = DockStyle.Fill;
+            btnBrowse.Margin = new Padding(4, 0, 0, 0);
+            layout.Controls.Add(btnBrowse, 1, 1);
 
-            gCfg.Controls.Add(_txtConfigDir);
-            gCfg.Controls.Add(btnBrowse);
-            gCfg.Controls.Add(_btnReload);
-            gCfg.Controls.Add(btnSamples);
-            gCfg.Controls.Add(_btnConnect);
+            _btnReload = CreateButton("Load", LoadProfiles);
+            _btnReload.Dock = DockStyle.Fill;
+            _btnReload.Margin = new Padding(4, 0, 0, 0);
+            layout.Controls.Add(_btnReload, 2, 1);
 
-            topPanel.Controls.Add(gA);
-            topPanel.Controls.Add(gB);
-            topPanel.Controls.Add(gCfg);
+            var btnSamples = CreateButton("Samples", CreateSamples);
+            btnSamples.Dock = DockStyle.Fill;
+            btnSamples.Margin = new Padding(0, 6, 0, 0);
+            layout.Controls.Add(btnSamples, 0, 2);
 
-            var gCmd = CreateGroup("Manual Send", 10, 270, gWidth, 190);
-            gCmd.Controls.Add(MakeLabel("Device", 10, 10));
+            _btnConnect = CreateButton("Start", ToggleConnect);
+            _btnConnect.Dock = DockStyle.Fill;
+            _btnConnect.Margin = new Padding(0, 6, 0, 0);
+            layout.Controls.Add(_btnConnect, 0, 3);
+            layout.SetColumnSpan(_btnConnect, 2);
+        }
+
+        private GroupBox BuildManualSendRow()
+        {
+            var group = CreateGroup("Manual Send");
+            group.Dock = DockStyle.Fill;
+            group.Height = 160;
+            group.MinimumSize = new Size(0, 140);
+
+            var layout = new TableLayoutPanel();
+            layout.Dock = DockStyle.Fill;
+            layout.ColumnCount = 5;
+            layout.RowCount = 3;
+            layout.Padding = new Padding(6, 8, 6, 6);
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 18f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 82f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            group.Controls.Add(layout);
+
+            // row 0 labels
+            layout.Controls.Add(MakeLabel("Device"), 1, 0);
+            layout.Controls.Add(MakeLabel("Address"), 2, 0);
+            layout.Controls.Add(MakeLabel("Command"), 3, 0);
+
+            // row 1 inputs
             _txtDevice = new TextBox();
-            _txtDevice.Left = 15;
-            _txtDevice.Top = 44;
-            _txtDevice.Width = 160;
-            StyleTextInput(_txtDevice);
+            _txtDevice.Dock = DockStyle.Fill;
             _txtDevice.Text = "Nova_AI708";
+            StyleTextInput(_txtDevice);
+            layout.Controls.Add(_txtDevice, 1, 1);
 
-            gCmd.Controls.Add(MakeLabel("Address", 180, 10));
             _txtAddr = new TextBox();
-            _txtAddr.Left = 185;
-            _txtAddr.Top = 44;
+            _txtAddr.Dock = DockStyle.Fill;
             _txtAddr.Width = 55;
-            StyleTextInput(_txtAddr);
             _txtAddr.Text = "1";
-
-            gCmd.Controls.Add(MakeLabel("Command", 250, 10));
-
-            int btnSendWidth = 72;
-            int btnGap = 10;
-            int sidePad = 12;
-            int sendLeft = 255;
-            int txtSendWidth = gCmd.Width - sendLeft - btnSendWidth - btnGap - sidePad;
+            StyleTextInput(_txtAddr);
+            layout.Controls.Add(_txtAddr, 2, 1);
 
             _txtSend = new TextBox();
-            _txtSend.Left = sendLeft;
-            _txtSend.Top = 44;
-            _txtSend.Width = txtSendWidth;
-            StyleTextInput(_txtSend);
-            _txtSend.Anchor = AnchorStyles.Left | AnchorStyles.Top | AnchorStyles.Right;
+            _txtSend.Dock = DockStyle.Fill;
             _txtSend.Text = "set_sv 25.0";
+            StyleTextInput(_txtSend);
+            layout.Controls.Add(_txtSend, 3, 1);
 
-            _btnSend = CreateButton("Send", gCmd.Width - sidePad - btnSendWidth, 44, btnSendWidth, 36, SendManual);
+            _btnSend = CreateButton("Send", SendManual);
+            _btnSend.Dock = DockStyle.Fill;
+            _btnSend.Margin = new Padding(4, 0, 0, 0);
+            _btnSend.Width = 72;
+            layout.Controls.Add(_btnSend, 4, 1);
 
-            gCmd.Controls.Add(_txtDevice);
-            gCmd.Controls.Add(_txtAddr);
-            gCmd.Controls.Add(_txtSend);
-            gCmd.Controls.Add(_btnSend);
-            gCmd.Controls.Add(new Label
+            // row 2 hint
+            var hint = new Label
             {
                 Text = "DEVICE=<name>;ADDR=<addr>;CMD=<command> or @<name> <cmd> ...",
-                Left = 15,
-                Top = 96,
-                Width = 940,
-                Height = 24,
+                Dock = DockStyle.Fill,
                 ForeColor = Color.DimGray,
-                Font = this.Font
-            });
-            Controls.Add(gCmd);
+                Font = this.Font,
+                Height = 24,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            layout.Controls.Add(hint, 1, 2);
+            layout.SetColumnSpan(hint, 4);
 
-            var gList = CreateGroup("Loaded Profiles", 10, 470, 320, 300);
+            return group;
+        }
+
+        private TableLayoutPanel BuildMiddleRow()
+        {
+            var middle = new TableLayoutPanel();
+            middle.Dock = DockStyle.Fill;
+            middle.ColumnCount = 2;
+            middle.RowCount = 1;
+            middle.Padding = new Padding(0, 4, 0, 4);
+            middle.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32f));
+            middle.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 68f));
+            middle.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+            var gList = CreateGroup("Loaded Profiles");
+            var gLog = CreateGroup("Runtime Log");
+            middle.Controls.Add(gList, 0, 0);
+            middle.Controls.Add(gLog, 1, 0);
+
             _lstProfile = new ListBox();
-            _lstProfile.Left = 10;
-            _lstProfile.Top = 26;
-            _lstProfile.Width = 290;
-            _lstProfile.Height = 252;
+            _lstProfile.Dock = DockStyle.Fill;
             StyleList(_lstProfile, new Font("Microsoft YaHei UI", 10f), 30);
             gList.Controls.Add(_lstProfile);
-            Controls.Add(gList);
 
-            var gLog = CreateGroup("Runtime Log", 340, 470, 690, 300);
+            var logPanel = new TableLayoutPanel();
+            logPanel.Dock = DockStyle.Fill;
+            logPanel.ColumnCount = 1;
+            logPanel.RowCount = 2;
+            logPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            logPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            gLog.Controls.Add(logPanel);
+
             _lstLog = new ListBox();
-            _lstLog.Left = 10;
-            _lstLog.Top = 26;
-            _lstLog.Width = 666;
-            _lstLog.Height = 252;
+            _lstLog.Dock = DockStyle.Fill;
             StyleList(_lstLog, new Font("Consolas", 10f), 25);
-            gLog.Controls.Add(_lstLog);
+            logPanel.Controls.Add(_lstLog, 0, 0);
 
-            var btnClear = CreateButton("Clear", 620, 0, 60, 22, delegate() { _lstLog.Items.Clear(); });
-            gLog.Controls.Add(btnClear);
-            Controls.Add(gLog);
+            var btnClear = CreateButton("Clear", delegate() { _lstLog.Items.Clear(); });
+            btnClear.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnClear.Width = 70;
+            btnClear.Height = 26;
+            btnClear.Margin = new Padding(0, 4, 0, 0);
+            logPanel.Controls.Add(btnClear, 0, 1);
 
-            _lblStatus = new Label();
-            _lblStatus.Left = 15;
-            _lblStatus.Top = 785;
-            _lblStatus.Width = 1010;
-            _lblStatus.Height = 24;
-            _lblStatus.Font = new Font("Microsoft YaHei UI", 10f);
-            _lblStatus.Text = "Stopped";
-            _lblStatus.ForeColor = Color.DarkBlue;
-            _lblStatus.TextAlign = ContentAlignment.MiddleLeft;
-            Controls.Add(_lblStatus);
+            return middle;
         }
+
         private void CreateSamples()
         {
             string dir = _txtConfigDir.Text;
@@ -264,16 +377,14 @@ namespace ComComMiddleware
             LoadProfiles();
         }
 
-        private GroupBox CreateGroup(string title, int x, int y, int w, int h)
+        private GroupBox CreateGroup(string title)
         {
             var g = new GroupBox();
             g.Text = title;
-            g.Left = x;
-            g.Top = y;
-            g.Width = w;
-            g.Height = h;
+            g.Dock = DockStyle.Fill;
             g.Font = new Font("Microsoft YaHei UI", 11f);
             g.Padding = new Padding(6, 8, 6, 6);
+            g.Margin = new Padding(4);
             return g;
         }
 
@@ -285,17 +396,14 @@ namespace ComComMiddleware
             list.BorderStyle = BorderStyle.FixedSingle;
         }
 
-        private Label MakeLabel(string text, int x, int y)
+        private Label MakeLabel(string text)
         {
             var l = new Label();
             l.Text = text;
-            l.Left = x;
-            l.Top = y;
-            l.Width = 72;
-            l.Font = new Font("Microsoft YaHei UI", 11f);
-            l.AutoSize = false;
-            l.Height = 28;
+            l.AutoSize = true;
+            l.Font = new Font("Microsoft YaHei UI", 10f);
             l.TextAlign = ContentAlignment.MiddleLeft;
+            l.Margin = new Padding(2, 6, 4, 2);
             return l;
         }
 
@@ -303,7 +411,7 @@ namespace ComComMiddleware
         {
             var t = new TextBox();
             t.Width = width;
-            t.Height = 28;
+            t.Height = height;
             StyleTextInput(t);
             return t;
         }
@@ -311,27 +419,25 @@ namespace ComComMiddleware
         private void StyleTextInput(TextBox t)
         {
             t.Font = this.Font;
-            t.Height = 34;
+            t.Height = 28;
             t.BorderStyle = BorderStyle.Fixed3D;
             t.Multiline = false;
             t.AutoSize = false;
-            t.Anchor = AnchorStyles.Left | AnchorStyles.Top;
+            t.Anchor = AnchorStyles.Left | AnchorStyles.Top | AnchorStyles.Right;
             t.TextAlign = HorizontalAlignment.Left;
         }
 
-        private ComboBox CreateCombo(int x, int y)
+        private ComboBox CreateCombo()
         {
-            return CreateCombo(x, y, new string[0]);
+            return CreateCombo(new string[0]);
         }
 
-        private ComboBox CreateCombo(int x, int y, string[] items)
+        private ComboBox CreateCombo(string[] items)
         {
             var c = new ComboBox();
-            c.Left = x;
-            c.Top = y;
-            c.Width = 150;
+            c.Dock = DockStyle.Fill;
             c.IntegralHeight = false;
-            c.Height = 34;
+            c.Height = 28;
             c.Font = this.Font;
             c.DropDownStyle = ComboBoxStyle.DropDownList;
             foreach (string s in items)
@@ -341,14 +447,11 @@ namespace ComComMiddleware
             return c;
         }
 
-        private Button CreateButton(string text, int x, int y, int w, int h, Action click)
+        private Button CreateButton(string text, Action click)
         {
             var b = new Button();
             b.Text = text;
-            b.Left = x;
-            b.Top = y;
-            b.Width = w;
-            b.Height = Math.Max(28, h);
+            b.Height = 32;
             b.Font = this.Font;
             b.Click += delegate(object s, EventArgs e)
             {
@@ -501,5 +604,4 @@ namespace ComComMiddleware
             _lstLog.TopIndex = Math.Max(0, _lstLog.Items.Count - 1);
         }
     }
-
 }
