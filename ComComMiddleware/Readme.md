@@ -18,15 +18,16 @@
 
 ## 支持的协议
 
-当前 C# 核心实现支持以下三种协议引擎：
+当前 C# 核心实现支持以下四种协议引擎：
 
 | 协议名 | 说明 | 引擎类 |
 |--------|------|--------|
 | `modbus-rtu` | 标准 Modbus-RTU，支持读保持寄存器、写单寄存器、读写线圈 | `ModbusEngine` |
 | `fixed-frame` | 固定格式字节帧，支持模板占位符、`sum8`/`xor8` 校验 | `FixedFrameEngine` |
 | `custom` | 自定义空格分隔模板，支持 `{key:u8}` 严格 1 字节参数 | `CustomEngine` |
+| `sevenstar` | 七星华创 CS200A 系列质量流量计专用协议 | `SevenStarEngine` |
 
-> 提示：如需支持新协议（如 `sevenstar`、`bacnet`、`opc-ua` 等），可新增一个实现 `IProtocolEngine` 的类，并在 `ProtocolEngineFactory.Create` 中注册。
+> 提示：如需支持新协议（如 `bacnet`、`opc-ua` 等），可新增一个实现 `IProtocolEngine` 的类，并在 `ProtocolEngineFactory.Create` 中注册。
 
 ### 自定义协议（custom）能做什么
 
@@ -271,6 +272,63 @@ Custom 协议支持两种发送模式，通过 `send_mode` 指定：
 | `response_mode` | `none` 不等待响应；默认等待 |
 | `response_parse` | `text` 以 ASCII 解析响应；默认 HEX |
 
+### 4. SevenStar 协议（七星华创 CS200A）
+
+专用协议，自动拼帧、计算 `sum8` 校验、处理 `UFRAC16` 流量值编码/解码。
+
+```json
+{
+  "name": "七星华创_CS200A",
+  "protocol": "sevenstar",
+  "default_baudrate": 9600,
+  "default_address": 32,
+  "registers": {
+    "flow": {
+      "class": "0x68",
+      "instance": "0x01",
+      "attribute": "0xB9",
+      "type": "ufrac16",
+      "unit": "%"
+    },
+    "setpoint": {
+      "class": "0x69",
+      "instance": "0x01",
+      "attribute": "0xA4",
+      "type": "ufrac16",
+      "unit": "%"
+    }
+  },
+  "commands": {
+    "read_flow": { "action": "read", "register": "flow" },
+    "write_flow": { "action": "write", "register": "setpoint", "input": "float" },
+    "read_multi": { "action": "read_multi", "registers": ["flow", "setpoint"] }
+  }
+}
+```
+
+字段说明：
+
+| 字段 | 说明 |
+|------|------|
+| `class` / `instance` / `attribute` | 命令定位字段，对应协议文档中的 Class / Instance / Attribute |
+| `type` | `ufrac16` / `ufrac16_pct` / `uint16` / `int16` / `uint8` / `string` / `textXX` |
+| `scale` / `offset` | 读取后的换算系数和偏移 |
+| `unit` | 显示单位 |
+| `action` | 命令动作：`read`、`write`、`read_multi` |
+| `register` | 命令关联的寄存器名 |
+| `registers` | `read_multi` 时批量读取的寄存器列表 |
+| `input` | 写命令输入提示（`float`、`int`），不影响编码 |
+
+发送命令：
+
+```text
+@七星华创_CS200A read_flow
+@七星华创_CS200A write_flow 50
+@七星华创_CS200A read_multi
+```
+
+写 50 表示 50% 满量程，引擎自动编码为 `UFRAC16` 原始值 `0x8000`。
+
 ---
 
 ## 如何添加新设备
@@ -282,6 +340,7 @@ Custom 协议支持两种发送模式，通过 `send_mode` 指定：
    - Modbus：`action` + `register`
    - Fixed-frame：`template` + `params` + `response_mode`
    - Custom：`send` + `send_mode`；hex 模式用 `{key:u8}`，ascii/AT 模式用 `{key}`
+   - SevenStar：在 `registers` 中定义 `class`/`instance`/`attribute`/`type`，命令中 `action` + `register`
 5. 保存到配置目录，UI 中点击 **Load**。
 6. 用 Manual Send 或 `Sample_Commands.txt` 中的示例命令验证帧内容。
 

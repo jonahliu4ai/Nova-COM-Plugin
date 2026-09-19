@@ -1,0 +1,50 @@
+{
+  "name": "七星华创_CS200A_FixedFrame",
+  "protocol": "fixed-frame",
+  "default_baudrate": 9600,
+  "default_address": 32,
+  "commands": {
+    "read_flow": {
+      "template": "{addr},02,80,03,68,01,B9,00",
+      "response_length": 12,
+      "checksum": "sum8"
+    },
+    "read_setpoint": {
+      "template": "{addr},02,80,03,69,01,A5,00",
+      "response_length": 12,
+      "checksum": "sum8"
+    },
+    "write_flow": {
+      "template": "{addr},02,81,05,69,01,A4,{d1},{d2},00",
+      "params": ["d1", "d2"],
+      "response_length": 12,
+      "checksum": "sum8"
+    },
+    "read_gas_fullscale": {
+      "template": "{addr},02,80,03,66,01,03,00",
+      "response_length": 12,
+      "checksum": "sum8"
+    },
+    "read_zero_status": {
+      "template": "{addr},02,80,03,68,01,BA,00",
+      "response_length": 11,
+      "checksum": "sum8"
+    },
+    "read_valve_mode": {
+      "template": "{addr},02,80,03,6A,01,A1,00",
+      "response_length": 11,
+      "checksum": "sum8"
+    },
+    "write_valve_mode": {
+      "template": "{addr},02,81,04,6A,01,A1,{mode},00",
+      "params": ["mode"],
+      "response_length": 11,
+      "checksum": "sum8"
+    },
+    "read_device_addr": {
+      "template": "{addr},02,80,03,03,01,01,00",
+      "response_length": 11,
+      "checksum": "sum8"
+    }
+  }
+}

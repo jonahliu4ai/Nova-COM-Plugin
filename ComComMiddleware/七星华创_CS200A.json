@@ -1,0 +1,316 @@
+{
+  "name": "七星华创_CS200A",
+  "protocol": "sevenstar",
+  "default_baudrate": 19200,
+  "default_address": 32,
+  "full_scale": 100,
+  "gas_type": "N2",
+  "registers": {
+    "flow": {
+      "service": "read",
+      "class": "0x68",
+      "instance": "0x01",
+      "attribute": "0xB9",
+      "type": "ufrac16",
+      "unit": "sccm"
+    },
+    "setpoint": {
+      "service": "write",
+      "class": "0x69",
+      "instance": "0x01",
+      "attribute": "0xA4",
+      "type": "ufrac16",
+      "unit": "sccm"
+    },
+    "digital_setpoint": {
+      "service": "read",
+      "class": "0x69",
+      "instance": "0x01",
+      "attribute": "0xA4",
+      "type": "ufrac16",
+      "unit": "sccm"
+    },
+    "active_setpoint": {
+      "service": "read",
+      "class": "0x69",
+      "instance": "0x01",
+      "attribute": "0xA5",
+      "type": "ufrac16",
+      "unit": "sccm"
+    },
+    "control_mode": {
+      "service": "read",
+      "class": "0x69",
+      "instance": "0x01",
+      "attribute": "0x03",
+      "type": "uint8",
+      "unit": ""
+    },
+    "control_mode_write": {
+      "service": "write",
+      "class": "0x69",
+      "instance": "0x01",
+      "attribute": "0x03",
+      "type": "uint8",
+      "unit": ""
+    },
+    "hold_follow_write": {
+      "service": "write",
+      "class": "0x69",
+      "instance": "0x01",
+      "attribute": "0x05",
+      "type": "uint8",
+      "unit": ""
+    },
+    "delay_ms": {
+      "service": "write",
+      "class": "0x69",
+      "instance": "0x01",
+      "attribute": "0xA6",
+      "type": "uint16",
+      "unit": "ms"
+    },
+    "softstart": {
+      "service": "read",
+      "class": "0x6A",
+      "instance": "0x01",
+      "attribute": "0xA4",
+      "type": "ufrac16_pct",
+      "unit": "%FS"
+    },
+    "softstart_write": {
+      "service": "write",
+      "class": "0x6A",
+      "instance": "0x01",
+      "attribute": "0xA4",
+      "type": "ufrac16_pct",
+      "unit": "%FS"
+    },
+    "shutoff": {
+      "service": "read",
+      "class": "0x6A",
+      "instance": "0x01",
+      "attribute": "0xA2",
+      "type": "ufrac16_pct",
+      "unit": "%FS"
+    },
+    "valve_cmd": {
+      "service": "write",
+      "class": "0x6A",
+      "instance": "0x01",
+      "attribute": "0x01",
+      "type": "uint8",
+      "unit": ""
+    },
+    "valve_voltage": {
+      "service": "read",
+      "class": "0x6A",
+      "instance": "0x01",
+      "attribute": "0x91",
+      "type": "uint16",
+      "unit": ""
+    },
+    "valve_type": {
+      "service": "read",
+      "class": "0x6A",
+      "instance": "0x01",
+      "attribute": "0x9C",
+      "type": "uint8",
+      "unit": ""
+    },
+    "zero": {
+      "service": "write",
+      "class": "0x68",
+      "instance": "0x01",
+      "attribute": "0xBA",
+      "type": "uint8",
+      "unit": ""
+    },
+    "gas_name": {
+      "service": "read",
+      "class": "0x66",
+      "instance": "0x01",
+      "attribute": "0x01",
+      "type": "string",
+      "length": 32,
+      "unit": ""
+    },
+    "gas_code": {
+      "service": "read",
+      "class": "0x66",
+      "instance": "0x01",
+      "attribute": "0x02",
+      "type": "uint16",
+      "unit": ""
+    },
+    "full_scale": {
+      "service": "read",
+      "class": "0x66",
+      "instance": "0x01",
+      "attribute": "0x03",
+      "type": "uint16",
+      "unit": "sccm"
+    },
+    "product_name": {
+      "service": "read",
+      "class": "0x01",
+      "instance": "0x01",
+      "attribute": "0x07",
+      "type": "string",
+      "length": 32,
+      "unit": ""
+    },
+    "manufacturer": {
+      "service": "read",
+      "class": "0x64",
+      "instance": "0x01",
+      "attribute": "0x03",
+      "type": "string",
+      "length": 32,
+      "unit": ""
+    },
+    "model": {
+      "service": "read",
+      "class": "0x64",
+      "instance": "0x01",
+      "attribute": "0x04",
+      "type": "string",
+      "length": 16,
+      "unit": ""
+    },
+    "serial_number": {
+      "service": "read",
+      "class": "0x64",
+      "instance": "0x01",
+      "attribute": "0x07",
+      "type": "string",
+      "length": 16,
+      "unit": ""
+    },
+    "temperature": {
+      "service": "read",
+      "class": "0xA3",
+      "instance": "0x01",
+      "attribute": "0x07",
+      "type": "uint16",
+      "scale": 0.0806,
+      "offset": -50,
+      "unit": "℃"
+    },
+    "alarms": {
+      "service": "read",
+      "class": "0x65",
+      "instance": "0x01",
+      "attribute": "0xA0",
+      "type": "uint16",
+      "unit": ""
+    },
+    "eeprom_program": {
+      "service": "write",
+      "class": "0x69",
+      "instance": "0x01",
+      "attribute": "0x06",
+      "type": "uint8",
+      "unit": ""
+    },
+    "reset": {
+      "service": "write",
+      "class": "0x03",
+      "instance": "0x01",
+      "attribute": "0x03",
+      "type": "uint8",
+      "unit": ""
+    }
+  },
+  "commands": {
+    "read_flow": {
+      "action": "read",
+      "register": "flow"
+    },
+    "set_flow": {
+      "action": "write",
+      "register": "setpoint",
+      "input": "float"
+    },
+    "read_setpoint": {
+      "action": "read",
+      "register": "active_setpoint"
+    },
+    "read_digital_setpoint": {
+      "action": "read",
+      "register": "digital_setpoint"
+    },
+    "read_control_mode": {
+      "action": "read",
+      "register": "control_mode"
+    },
+    "set_control_mode": {
+      "action": "write",
+      "register": "control_mode_write",
+      "input": "int"
+    },
+    "set_hold_follow": {
+      "action": "write",
+      "register": "hold_follow_write",
+      "input": "int"
+    },
+    "set_delay": {
+      "action": "write",
+      "register": "delay_ms",
+      "input": "int"
+    },
+    "read_softstart": {
+      "action": "read",
+      "register": "softstart"
+    },
+    "set_softstart": {
+      "action": "write",
+      "register": "softstart_write",
+      "input": "float"
+    },
+    "set_valve": {
+      "action": "write",
+      "register": "valve_cmd",
+      "input": "int"
+    },
+    "read_valve_voltage": {
+      "action": "read",
+      "register": "valve_voltage"
+    },
+    "read_valve_type": {
+      "action": "read",
+      "register": "valve_type"
+    },
+    "zero": {
+      "action": "write",
+      "register": "zero",
+      "input": "int"
+    },
+    "read_temperature": {
+      "action": "read",
+      "register": "temperature"
+    },
+    "read_alarms": {
+      "action": "read",
+      "register": "alarms"
+    },
+    "read_gas_info": {
+      "action": "read_multi",
+      "registers": ["gas_name", "full_scale"]
+    },
+    "read_device_info": {
+      "action": "read_multi",
+      "registers": ["product_name", "manufacturer", "model", "serial_number"]
+    },
+    "eeprom_program": {
+      "action": "write",
+      "register": "eeprom_program",
+      "input": "int"
+    },
+    "reset": {
+      "action": "write",
+      "register": "reset",
+      "input": "int"
+    }
+  }
+}

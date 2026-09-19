@@ -100,8 +100,9 @@ public class SmokeTests
         using (var m = ProtocolEngineFactory.Create("modbus-rtu"))
         using (var f = ProtocolEngineFactory.Create("fixed-frame"))
         using (var c = ProtocolEngineFactory.Create("custom"))
+        using (var s = ProtocolEngineFactory.Create("sevenstar"))
         {
-            Check("Engine factory", m != null && f != null && c != null && ProtocolEngineFactory.Create("none") == null);
+            Check("Engine factory", m != null && f != null && c != null && s != null && ProtocolEngineFactory.Create("none") == null);
         }
     }
 }

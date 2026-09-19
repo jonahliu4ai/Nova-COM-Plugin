@@ -703,6 +703,7 @@ namespace ComComMiddleware
             if (p == "modbus" || p == "modbus-rtu") return new ModbusEngine();
             if (p == "fixed-frame" || p == "fixedframe") return new FixedFrameEngine();
             if (p == "custom") return new CustomEngine();
+            if (p == "sevenstar" || p == "七星华创") return new SevenStarEngine();
             return null;
         }
     }
@@ -1504,6 +1505,372 @@ namespace ComComMiddleware
                 rs.AddRange(HexUtil.FromHex(s));
             }
             return rs.ToArray();
+        }
+    }
+
+    public class SevenStarEngine : ProtocolEngineBase
+    {
+        private const byte STX = 0x02;
+        private const byte SERVICE_READ = 0x80;
+        private const byte SERVICE_WRITE = 0x81;
+        private const byte PAD = 0x00;
+        private const byte ACK_OK = 0x06;
+        private const byte ACK_NAK = 0x15;
+
+        public override string Execute(string cmd, string args)
+        {
+            if (Profile == null || Profile.commands == null)
+            {
+                return "ERR:NoProfile";
+            }
+
+            string c = cmd == null ? string.Empty : cmd.ToLowerInvariant();
+            if (!Profile.commands.ContainsKey(c))
+            {
+                return "ERR:UnknownCmd";
+            }
+
+            CommandDef def = Profile.commands[c];
+
+            if (string.Equals(def.action, "read_multi", StringComparison.OrdinalIgnoreCase))
+            {
+                return ExecuteReadMulti(def);
+            }
+
+            return ExecuteSingle(def, args);
+        }
+
+        private string ExecuteSingle(CommandDef def, string args)
+        {
+            RegisterDef reg = null;
+            if (!string.IsNullOrWhiteSpace(def.register) && Profile.registers != null)
+            {
+                Profile.registers.TryGetValue(def.register, out reg);
+            }
+
+            if (reg == null)
+            {
+                return "ERR:NoReg";
+            }
+
+            byte cls = ParseByte(null, reg.cls, 0);
+            byte inst = ParseByte(null, reg.instance, 1);
+            byte attr = ParseByte(null, reg.attribute, 0);
+
+            bool isWrite = IsWrite(def, reg);
+
+            byte[] data = null;
+            if (isWrite)
+            {
+                data = EncodeWriteData(reg, args, def.input);
+                if (data == null)
+                {
+                    return "ERR:ValueFormat";
+                }
+            }
+
+            byte service = isWrite ? SERVICE_WRITE : SERVICE_READ;
+            byte[] frame = BuildFrame(service, cls, inst, attr, data);
+            byte[] rsp = Bus.SendAndReceive(frame, true, 0, true);
+            if (rsp == null || rsp.Length == 0)
+            {
+                return "OK|NoRsp";
+            }
+
+            return ParseResponse(rsp, isWrite, reg);
+        }
+
+        private string ExecuteReadMulti(CommandDef def)
+        {
+            if (def.registers == null || def.registers.Count == 0)
+            {
+                return "ERR:NoRegs";
+            }
+
+            var parts = new List<string>();
+            foreach (string rk in def.registers)
+            {
+                RegisterDef reg = null;
+                if (Profile.registers == null || !Profile.registers.TryGetValue(rk, out reg))
+                {
+                    parts.Add(rk + "=ERR:NoReg");
+                    continue;
+                }
+
+                byte cls = ParseByte(null, reg.cls, 0);
+                byte inst = ParseByte(null, reg.instance, 1);
+                byte attr = ParseByte(null, reg.attribute, 0);
+                byte[] frame = BuildFrame(SERVICE_READ, cls, inst, attr, null);
+                byte[] rsp = Bus.SendAndReceive(frame, true, 0, true);
+                if (rsp == null || rsp.Length == 0)
+                {
+                    parts.Add(rk + "=ERR:NoRsp");
+                }
+                else
+                {
+                    parts.Add(rk + "=" + ParseResponse(rsp, false, reg));
+                }
+            }
+            return string.Join(";", parts.ToArray());
+        }
+
+        private byte ParseByte(string cmdValue, string regValue, byte def)
+        {
+            string s = cmdValue;
+            if (string.IsNullOrWhiteSpace(s))
+            {
+                s = regValue;
+            }
+            if (string.IsNullOrWhiteSpace(s))
+            {
+                return def;
+            }
+            return (byte)ParseIntOrDefault(s, def);
+        }
+
+        private bool IsWrite(CommandDef def, RegisterDef reg)
+        {
+            if (!string.IsNullOrWhiteSpace(def.action))
+            {
+                return string.Equals(def.action, "write", StringComparison.OrdinalIgnoreCase);
+            }
+            if (reg != null && !string.IsNullOrWhiteSpace(reg.action))
+            {
+                return string.Equals(reg.action, "write", StringComparison.OrdinalIgnoreCase);
+            }
+            return false;
+        }
+
+        private byte[] BuildFrame(byte service, byte cls, byte instance, byte attribute, byte[] data)
+        {
+            int dataLen = 3 + (data != null ? data.Length : 0);
+            List<byte> frame = new List<byte>();
+            frame.Add((byte)Address);
+            frame.Add(STX);
+            frame.Add(service);
+            frame.Add((byte)dataLen);
+            frame.Add(cls);
+            frame.Add(instance);
+            frame.Add(attribute);
+            if (data != null && data.Length > 0)
+            {
+                frame.AddRange(data);
+            }
+            frame.Add(PAD);
+            frame.Add(Checksum(frame));
+            return frame.ToArray();
+        }
+
+        private byte Checksum(List<byte> data)
+        {
+            byte cs = 0;
+            foreach (byte b in data)
+            {
+                cs += b;
+            }
+            return cs;
+        }
+
+        private byte[] EncodeWriteData(RegisterDef reg, string args, string inputHint)
+        {
+            if (reg == null)
+            {
+                return null;
+            }
+
+            string t = reg.type == null ? "uint16" : reg.type.ToLowerInvariant();
+
+            if (t == "ufrac16" || t == "ufrac16_pct")
+            {
+                double percent;
+                if (!double.TryParse(args, NumberStyles.Float, CultureInfo.InvariantCulture, out percent))
+                {
+                    return null;
+                }
+                ushort raw = UFrac16Encode(percent);
+                return new byte[] { (byte)(raw & 0xFF), (byte)(raw >> 8) };
+            }
+
+            if (t == "uint16")
+            {
+                ushort val;
+                if (!ushort.TryParse(args, NumberStyles.Integer, CultureInfo.InvariantCulture, out val))
+                {
+                    return null;
+                }
+                return new byte[] { (byte)(val & 0xFF), (byte)(val >> 8) };
+            }
+
+            if (t == "int16")
+            {
+                short val;
+                if (!short.TryParse(args, NumberStyles.Integer, CultureInfo.InvariantCulture, out val))
+                {
+                    return null;
+                }
+                return new byte[] { (byte)(val & 0xFF), (byte)(val >> 8) };
+            }
+
+            if (t == "uint8")
+            {
+                byte val;
+                if (!byte.TryParse(args, NumberStyles.Integer, CultureInfo.InvariantCulture, out val))
+                {
+                    return null;
+                }
+                return new byte[] { val };
+            }
+
+            if (t == "string" || t.StartsWith("text"))
+            {
+                return Encoding.ASCII.GetBytes(args);
+            }
+
+            return null;
+        }
+
+        private string ParseResponse(byte[] rsp, bool isWrite, RegisterDef reg)
+        {
+            if (rsp == null || rsp.Length < 10)
+            {
+                return "ERR:ShortRsp";
+            }
+
+            int idx = 0;
+            byte ack = rsp[idx++];
+            if (ack == ACK_NAK)
+            {
+                return "ERR:NAK";
+            }
+            if (ack != ACK_OK)
+            {
+                return "ERR:BadAck:" + ack.ToString("X2");
+            }
+
+            if (rsp.Length - idx < 9)
+            {
+                return "ERR:ShortRsp";
+            }
+
+            idx++; // skip master address 0x00
+            idx++; // skip STX 0x02
+            idx++; // skip service
+            byte dataLen = rsp[idx++];
+            idx++; // skip class
+            idx++; // skip instance
+            idx++; // skip attribute
+
+            int payloadLen = dataLen - 3;
+            if (payloadLen < 0)
+            {
+                payloadLen = 0;
+            }
+
+            if (rsp.Length - idx < payloadLen + 2)
+            {
+                return "ERR:ShortRsp";
+            }
+
+            byte[] data = new byte[payloadLen];
+            Array.Copy(rsp, idx, data, 0, payloadLen);
+            idx += payloadLen;
+            idx++; // skip pad
+            byte cs = rsp[idx++];
+
+            byte expected = 0;
+            for (int i = 1; i < idx - 1; i++)
+            {
+                expected += rsp[i];
+            }
+            if (cs != expected)
+            {
+                return "ERR:BadChecksum";
+            }
+
+            if (isWrite)
+            {
+                return "OK";
+            }
+
+            if (reg == null)
+            {
+                return "OK|" + HexUtil.ToHex(data);
+            }
+
+            return DecodeReadData(reg, data);
+        }
+
+        private string DecodeReadData(RegisterDef reg, byte[] data)
+        {
+            string t = reg.type == null ? "uint16" : reg.type.ToLowerInvariant();
+
+            if (t == "ufrac16" || t == "ufrac16_pct")
+            {
+                if (data == null || data.Length < 2)
+                {
+                    return "ERR";
+                }
+                ushort raw = (ushort)(data[0] | (data[1] << 8));
+                double percent = UFrac16Decode(raw);
+                return ApplyScaleOffsetUnit(percent, reg);
+            }
+
+            if (t == "uint16")
+            {
+                if (data == null || data.Length < 2) return "ERR";
+                ushort v = (ushort)(data[0] | (data[1] << 8));
+                return ApplyScaleOffsetUnit(v, reg);
+            }
+
+            if (t == "int16")
+            {
+                if (data == null || data.Length < 2) return "ERR";
+                short v = (short)(data[0] | (data[1] << 8));
+                return ApplyScaleOffsetUnit(v, reg);
+            }
+
+            if (t == "uint8")
+            {
+                if (data == null || data.Length < 1) return "ERR";
+                return ApplyScaleOffsetUnit(data[0], reg);
+            }
+
+            if (t == "string" || t.StartsWith("text"))
+            {
+                int len = data.Length;
+                int z = Array.IndexOf(data, (byte)0);
+                if (z >= 0) len = z;
+                return Encoding.ASCII.GetString(data, 0, len);
+            }
+
+            return HexUtil.ToHex(data);
+        }
+
+        private string ApplyScaleOffsetUnit(double value, RegisterDef reg)
+        {
+            if (reg == null)
+            {
+                return value.ToString("0.###");
+            }
+            if (Math.Abs(reg.scale) > 0.0000001)
+            {
+                value = value * reg.scale;
+            }
+            value = value + reg.offset;
+            return value.ToString("0.###") + (reg.unit ?? string.Empty);
+        }
+
+        private static ushort UFrac16Encode(double percent)
+        {
+            int raw = 0x4000 + (int)(percent / 100.0 * 32768.0);
+            if (raw < 0) raw = 0;
+            if (raw > 0xFFFF) raw = 0xFFFF;
+            return (ushort)raw;
+        }
+
+        private static double UFrac16Decode(ushort raw)
+        {
+            return (raw - 0x4000) / 32768.0 * 100.0;
         }
     }
 
