@@ -1,22 +1,118 @@
-## 🤖 编程助手CodeAgentt
+# ComComMiddleware
 
-
-下面是一个针对 **ComComMiddleware** 设备配置 JSON 的详细 README 草稿，涵盖整体结构、主要字段、协议约束以及针对 `Sample_FixedFrame` 这类 fixed-frame 设备的命令写法。你可以直接保存为 `devices/README_new.md` 或补充到现有文档中，后续为新设备写 JSON 时照此格式扩展即可。
+串口透传 / 协议转换中间件。UI 通过 COM-A（Uplink）接收上位机（Nova）下发的文本命令，解析设备 JSON 配置后，通过 COM-B（Downlink）以对应协议帧与真实设备通信。
 
 ---
 
-# ComComMiddleware 设备配置 JSON 说明
+## 目录
 
-> 本文档说明如何为 ComComMiddleware 定义设备 JSON 文件，并给出命令写法与常见协议注意事项。所有 JSON 文件放置在 `ComComMiddleware/devices/` 目录（或在 UI 中手动选择的 Config Directory）。
+1. [支持的协议](#支持的协议)
+2. [快速开始](#快速开始)
+3. [命令输入格式](#命令输入格式)
+4. [设备 JSON 说明](#设备-json-说明)
+5. [如何添加新设备](#如何添加新设备)
+6. [构建与测试](#构建与测试)
+7. [示例](#示例)
 
-## 1. 顶层结构
+---
 
-每个设备 JSON 顶层字段：
+## 支持的协议
+
+当前 C# 核心实现支持以下三种协议引擎：
+
+| 协议名 | 说明 | 引擎类 |
+|--------|------|--------|
+| `modbus-rtu` | 标准 Modbus-RTU，支持读保持寄存器、写单寄存器、读写线圈 | `ModbusEngine` |
+| `fixed-frame` | 固定格式字节帧，支持模板占位符、`sum8`/`xor8` 校验 | `FixedFrameEngine` |
+| `custom` | 自定义空格分隔模板，支持 `{key:u8}` 严格 1 字节参数 | `CustomEngine` |
+
+> 提示：如需支持新协议（如 `sevenstar`、`bacnet`、`opc-ua` 等），可新增一个实现 `IProtocolEngine` 的类，并在 `ProtocolEngineFactory.Create` 中注册。
+
+### 自定义协议（custom）能做什么
+
+`custom` 协议让你无需改 C# 代码，仅通过 JSON 定义即可生成任意定长字节帧。
+
+- `send` 字段用空格分隔 token。
+- 固定 token 按 hex 解析，如 `AA`、`55`。
+- 占位符 `{key:u8}` 从命令参数取值，严格限制 `0-255`（十进制或 `0x??`）。
+- 解析失败返回 `ERR:CustomParse:key`。
+
+示例：
+
+```json
+{
+  "commands": {
+    "ping": { "send": "AA 55 01 {addr:u8}" },
+    "echo": { "send": "AA 55 02 {d1:u8} {d2:u8}" }
+  }
+}
+```
+
+对应命令：
+
+```text
+@MyDevice ping
+@MyDevice echo d1=10 d2=0xAB
+```
+
+---
+
+## 快速开始
+
+1. 编译：运行 `build.ps1`，生成 `ComComMiddleware.exe`、`ComComMiddleware.Core.dll`、`SmokeTests.exe`。
+2. 启动 UI，选择 Uplink COM（COM-A）和 Downlink COM（COM-B）。
+3. 设置 Config Directory（通常指向 `devices/` 目录或当前目录）。
+4. 点击 **Load** 加载 JSON，或点击 **Samples** 生成示例 JSON。
+5. 在 Manual Send 中输入命令并发送。
+
+---
+
+## 命令输入格式
+
+### 完整格式
+
+```text
+DEVICE=<name>;ADDR=<addr>;CMD=<command> [参数]
+```
+
+示例：
+
+```text
+DEVICE=Sample_FixedFrame;ADDR=1;CMD=open_ch N=3 state=1
+```
+
+### 简写格式
+
+```text
+@<name> <command> [参数]
+```
+
+示例：
+
+```text
+@Sample_FixedFrame open_ch N=3 state=1
+@Sample_Modbus read_pv
+```
+
+### RAW 透传
+
+不依赖 JSON 配置，直接发送字节或文本：
+
+```text
+RAW:HEX:AA 55 01 01
+RAW:TXT:hello world
+```
+
+---
+
+## 设备 JSON 说明
+
+### 顶层结构
 
 ```json
 {
   "name": "Device_Name",
-  "protocol": "<protocol-name>",
+  "protocol": "modbus-rtu",
   "default_baudrate": 9600,
   "default_address": 1,
   "registers": { ... },
@@ -24,184 +120,206 @@
 }
 ```
 
-- `name`：唯一设备名称，在发送命令时使用（区分大小写）。
-- `protocol`：取值之一：
- - `modbus-rtu`
- - `fixed-frame`
- - `custom`
- - （可扩展：`sevenstar` 等内部协议）
-- `default_baudrate`：UI 中默认波特率（可被用户覆盖）。
-- `default_address`：默认站号/地址（Modbus 1–247，fixed-frame/custom 由协议决定）。
-- `registers`：可选。对 Modbus/fixed-frame/自定义协议需要的寄存器或模板进行定义。
-- `commands`：必填。定义用户可调用的命令。
+字段说明：
 
-## 2. 常见字段详解
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `name` | 是 | 设备唯一名称，命令中 `DEVICE=` 或 `@` 后使用 |
+| `protocol` | 是 | `modbus-rtu`、`fixed-frame`、`custom` 之一 |
+| `default_baudrate` | 否 | 默认波特率，UI 可覆盖 |
+| `default_address` | 否 | 默认站号/地址；命令中不写 `ADDR` 时使用 |
+| `registers` | 否 | Modbus 寄存器或 fixed-frame 可复用段定义 |
+| `commands` | 是 | 用户可调用的命令定义 |
 
-### 2.1 registers
+### 1. Modbus-RTU 协议
 
-`registers` 块用于存放可复用的数据段定义。不同协议含义不同：
-
-- Modbus：
-```json
-  "registers": {
-    "pv": { "fc": 3, "addr": 0, "type": "int16", "scale": 0.1, "unit": "°C" }
-  }
-  ```
-  - `fc`：功能码（3/4=读保持寄存器，6=写单寄存器等）。
-  - `addr`：起始地址。
-  - `type`：数据类型（`int16`/`uint16`/`float` 等）。
-  - `scale`/`unit`：可选，显示时换算。
-
-- Fixed-frame：
-  ```json
-  "registers": {
-    "header": { "bytes": ["0xA0"], "checksum": "sum8" }
-  }
-  ```
-  - `bytes`：固定字节数组，用于插入段或校验。
-  - `checksum`：`sum8` / `xor8` / `none`；发送时自动附加校验。
-
-- Custom：
-  - 常通过 `commands` 的 `send` 模板直接构建，不必在 `registers` 定义。
-
-### 2.2 commands
-
-命令定义格式（根据协议不同）：
-
-#### a) Fixed-frame
+#### registers
 
 ```json
-"commands": {
-"open_ch": {
- "template": "0xA0,{N},0x00,0x01",
- "params": ["N", "state"],
- "response_mode": "none"
-}
-}
-```
-
-- `template`：逗号分隔的字节列表，可嵌 `{param}` 占位符。
-- `{param}` 占位符支持：
-  - 纯 `{NAME}`：在执行命令时替换成用户提供值（十六进制字符串或十进制）。
-  - `{addr}` / `{address}`：自动替换为当前地址（UI 输入或默认地址）。
-- `params`：命令需要哪些参数，供 UI/日志提示。
-- `response_mode`（可选）：
-  - `none`：发送后不等待响应。
-  - `text`：读取串口文本（用于 ASCII 响应）。
-  - 缺省：默认等待一帧并以 HEX 返回（`OK|AA BB ...`）。
-
-#### b) Custom
-
-```json
-"commands": {
-"echo_hex": {
- "send": "AA 55 02 {d1:u8} {d2:u8}",
- "response_mode": "text"
-}
-}
-```
-
-- `send`：空格分隔的 token。
-  - 固定 token：`AA`、`55` 等，按 hex 解析成字节。
-  - 占位符：`{key:u8}` 表示从参数 map 取键 `key`，严格限制 0–255（支持十进制或 `0x??`），解析失败会返回 `ERR:CustomParse:key`。
-- 无 `params` 字段，需要在手动输入时显式写 `d1=... d2=...`。
-
-#### c) Modbus-RTU
-
-```json
-"commands": {
-"read_pv": { "action": "read", "register": "pv" },
-"set_sv": { "action": "write", "register": "sv", "input": "float" }
-}
-```
-
-- `action`：`read`/`write`/`read_multi` 等。
-- `register`：引用 `registers` 中定义的条目。
-- `input`：写命令的输入类型（`float`/`int` 等）。
-
-## 3. 命令输入格式（Manual Send 面板）
-
-Manual Send 文本框支持两种方式：
-
-1. `DEVICE=<name>;ADDR=<addr>;CMD=<command> [params]`
-   - 如：`DEVICE=Sample_FixedFrame;ADDR=1;CMD=open_ch N=2 state=1`
-2. 简写：`@<name> <cmd> ...`
-   - 如：`@Sample_FixedFrame open_ch N=2 state=1`
-
-命令行解析遵循：
-- 参数以空格、逗号或分号分隔。
-- 每个参数写成 `key=value`。
-
-## 4. 示例：Sample_FixedFrame
-
-`Sample_FixedFrame.json`（随项目提供）：
-
-```json
-{
-"name": "Sample_FixedFrame",
-"protocol": "fixed-frame",
-"default_baudrate": 9600,
-"default_address": 1,
 "registers": {
- "header": { "bytes": ["0xA0"], "checksum": "sum8" }
-},
+  "pv": { "fc": 3, "addr": 0, "type": "int16", "scale": 0.1, "unit": "℃" },
+  "sv": { "fc": 3, "addr": 1, "type": "int16", "scale": 0.1, "unit": "℃" }
+}
+```
+
+字段说明：
+
+| 字段 | 说明 |
+|------|------|
+| `fc` | 功能码（3/4 读保持/输入寄存器，6 写单寄存器） |
+| `addr` | 寄存器起始地址 |
+| `type` | `int16`、`uint16`、`float`、`uint32`、`int32`、`bitmap` |
+| `scale` | 显示换算系数，读取时 `value * scale`，写入时 `value / scale` |
+| `unit` | 单位字符串 |
+| `length` | `bitmap` 类型时有效，默认 8 |
+
+#### commands
+
+```json
 "commands": {
- "open_ch": { "template": "0xA0,{N},0x00,0x01", "params": ["N", "state"] },
- "close_ch": { "template": "0xA0,{N},0x00,0x00", "params": ["N", "state"] },
- "ping": { "bytes": ["A0", "00", "00", "00"], "response_mode": "none" }
+  "read_pv": { "action": "read", "register": "pv" },
+  "set_sv":  { "action": "write", "register": "sv", "input": "float" },
+  "read_all": { "action": "read_multi", "registers": ["pv", "sv"] }
 }
+```
+
+`action` 取值：
+
+- `read`：读单个寄存器
+- `write`：写单个寄存器
+- `read_multi`：批量读多个寄存器
+- `read_coil`：读线圈
+- `write_coil`：写线圈
+
+### 2. Fixed-Frame 协议
+
+#### registers
+
+```json
+"registers": {
+  "header": { "bytes": ["0xA0"], "checksum": "sum8" }
 }
 ```
 
-- `open_ch`/`close_ch`：执行时需传 `N`（通道号），`state` 参数用于 UI 提示，可选。
- - `open_ch N=3 state=1` → 帧：`A0 03 00 01` + checksum。
- - `close_ch N=3 state=0` → 帧：`A0 03 00 00` + checksum。
-- `ping`：固定字节帧，无响应。
+`checksum` 取值：`sum8`、`xor8`、`none`。若指定，发送时会自动在帧尾追加校验字节。
 
-### 使用示例
+#### commands
 
-1. 打开通道 3
-```
-DEVICE=Sample_FixedFrame;ADDR=1;CMD=open_ch N=3 state=1
-```
-2. 关闭通道 3
-```
-@Sample_FixedFrame close_ch N=3 state=0
-```
-3. 发送 ping
-```
-@Sample_FixedFrame ping
+```json
+"commands": {
+  "open_ch": {
+    "template": "0xA0,{N},0x00,0x01",
+    "params": ["N", "state"],
+    "response_mode": "none"
+  },
+  "ping": {
+    "bytes": ["A0", "00", "00", "00"],
+    "response_mode": "none"
+  }
+}
 ```
 
-串口抓包可见发送帧 + 校验字节。`response_mode = none` 时 UI 会显示 `OK|NoWait`。
+字段说明：
 
-## 5. 自定义校验/帧尾
+| 字段 | 说明 |
+|------|------|
+| `template` | 逗号分隔的字节模板，支持 `{N}`、`{channel}`、`{state}`、`{addr}` 等占位符 |
+| `bytes` | 固定字节数组，与 `template` 二选一 |
+| `params` | 参数名列表，仅用于 UI/日志提示 |
+| `response_mode` | `none` 不等待响应；默认等待响应并以 HEX 返回 |
+| `response_parse` | `text` 时以 ASCII 文本解析响应 |
+| `response_length` | 固定响应字节长度，大于 0 时按长度读取 |
+| `checksum` | 覆盖 `registers` 中定义的校验方式 |
 
-- Fixed-frame 支持 `checksum`：`sum8`/`xor8`/`none`。若指定，系统自动在帧末尾追加校验字节，命令模板中无需再写。
-- 若需要额外固定尾部，可在 `template` 中写明（如 `0xAA,{data},0x55`）。
+### 3. Custom 协议
 
-## 6. 新设备定义步骤
+```json
+"commands": {
+  "ping": {
+    "send": "AA 55 01 {addr:u8}",
+    "response_mode": "text",
+    "response_parse": "text"
+  },
+  "echo": {
+    "send": "AA 55 02 {d1:u8} {d2:u8} {d3:u8}",
+    "response_mode": "text"
+  }
+}
+```
 
-1. 复制现有 JSON 样例（如 `Sample_FixedFrame.json`），重命名为目标设备名。
-2. 修改 `name`、`protocol`、默认波特率/地址。
-3. 结合协议文档填写 `registers`（若需要）。
-4. 为每个操作定义 `commands`：
- - Fixed-frame：设置 `template`、`params`、`response_mode`。
- - Custom：使用 `send` + `{key:u8}` 等占位符。
- - Modbus：使用 `action` + `register`。
-5. 保存到 `devices/` 或自定目录，UI 中配置 `Config Directory` 指向该路径并点击 `Load`。
-6. 通过 Manual Send 或脚本调用验证：
- - 使用 `build.ps1` 编译并运行 `ComComMiddleware.exe`。
- - 打开虚拟串口/真实设备后发送命令，确认帧内容正确。
+字段说明：
 
-## 7. 常见问题
-
-- **参数缺失/超范围**：Custom 协议解析严格，缺少 `key=u8` 或值超 0–255 会返回 `ERR:CustomParse:key`。
-- **响应模式**：不需要响应时设 `response_mode: "none"`，否则默认等待 `SerialBus` 读取数据。
-- **默认地址未生效**：Manual Send 文本中未写 `ADDR` 时使用 `default_address`。
-- **JSON 语法**：保持标准 UTF-8 文本、英文标点，确保末尾无额外逗号。
-- **配置目录**：运行时需确保 `Config Directory` 指向 JSON 所在文件夹。
+| 字段 | 说明 |
+|------|------|
+| `send` | 空格分隔 token；固定 token 按 hex 解析；`{key:u8}` 为 1 字节参数 |
+| `response_mode` | `none` 不等待响应；默认等待 |
+| `response_parse` | `text` 以 ASCII 解析响应；默认 HEX |
 
 ---
 
-你可以依据这份 README 给其它设备编写 JSON。建议将该文档补充到 `devices/README.md`，或新建英文说明文件，方便团队成员快速上手。配置完成后可使用前面提供的示例控制代码/Manual Send 命令进行验证。
+## 如何添加新设备
+
+1. 复制一个示例 JSON（如 `Sample_Modbus_Example.json`），重命名为目标设备名。
+2. 修改 `name`、`protocol`、默认波特率/地址。
+3. 根据协议文档填写 `registers`（Modbus 需要，fixed-frame/custom 可选）。
+4. 为每个操作定义 `commands`：
+   - Modbus：`action` + `register`
+   - Fixed-frame：`template` + `params` + `response_mode`
+   - Custom：`send` + `{key:u8}` 占位符
+5. 保存到配置目录，UI 中点击 **Load**。
+6. 用 Manual Send 或 `Sample_Commands.txt` 中的示例命令验证帧内容。
+
+---
+
+## 构建与测试
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build.ps1
+```
+
+输出：
+
+- `ComComMiddleware.Core.dll`：核心类库（协议、配置、网关）
+- `ComComMiddleware.exe`：WinForms UI
+- `SmokeTests.exe`：单元/集成测试
+
+运行测试：
+
+```powershell
+.\SmokeTests.exe
+```
+
+---
+
+## 示例
+
+### 打开通道 3
+
+```text
+DEVICE=Sample_FixedFrame;ADDR=1;CMD=open_ch N=3 state=1
+```
+
+发送帧：`A0 03 00 01` + `sum8` 校验。
+
+### 读取 Modbus PV
+
+```text
+@Sample_Modbus read_pv
+```
+
+发送 Modbus-RTU 读保持寄存器帧，返回带单位温度值。
+
+### 自定义协议 ping
+
+```text
+@Sample_Custom ping
+```
+
+发送 `AA 55 01 01`。
+
+---
+
+## 扩展新协议
+
+如需新增协议引擎：
+
+1. 在 `ComComMiddleware.Core.cs` 中实现 `IProtocolEngine`：
+
+```csharp
+public class MyProtocolEngine : ProtocolEngineBase
+{
+    public override string Execute(string cmd, string args)
+    {
+        // 解析命令，通过 Bus.SendAndReceive 发送/接收
+        return "OK";
+    }
+}
+```
+
+2. 在 `ProtocolEngineFactory.Create` 中注册：
+
+```csharp
+if (p == "my-protocol") return new MyProtocolEngine();
+```
+
+3. 创建对应的 JSON，设置 `"protocol": "my-protocol"`。
