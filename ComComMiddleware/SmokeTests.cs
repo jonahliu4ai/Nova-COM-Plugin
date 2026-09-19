@@ -38,23 +38,23 @@ public class SmokeTests
 
     private static void TestParser()
     {
-        NovaCommand c1 = NovaCommandParser.Parse("DEVICE=dev01;ADDR=2;CMD=set_sv 25.5");
+        ComCommand c1 = ComCommandParser.Parse("DEVICE=dev01;ADDR=2;CMD=set_sv 25.5");
         Check("Parse KV", c1 != null && c1.DeviceName == "dev01" && c1.Address == "2" && c1.Command == "set_sv" && c1.Args == "25.5");
 
-        NovaCommand c2 = NovaCommandParser.Parse("@devA ADDR=3 read_pv");
+        ComCommand c2 = ComCommandParser.Parse("@devA ADDR=3 read_pv");
         Check("Parse AT", c2 != null && c2.DeviceName == "devA" && c2.Address == "3" && c2.Command == "read_pv" && string.IsNullOrEmpty(c2.Args));
 
-        NovaCommand c3 = NovaCommandParser.Parse("@devB state=0 set_sv 10");
+        ComCommand c3 = ComCommandParser.Parse("@devB state=0 set_sv 10");
         Check("Parse AT with state", c3 != null && c3.DeviceName == "devB" && c3.Address == null && c3.Command == "set_sv" && c3.Args == "10");
 
-        NovaCommand c4 = NovaCommandParser.Parse("RAW:HEX:0A 1B 2C");
+        ComCommand c4 = ComCommandParser.Parse("RAW:HEX:0A 1B 2C");
         Check("Parse RAW HEX", c4 != null && c4.RawMode && c4.RawBytes.Length == 3 && c4.RawBytes[0] == 0x0A && c4.RawBytes[2] == 0x2C);
 
-        NovaCommand c5 = NovaCommandParser.Parse("RAW:TXT:hello world");
+        ComCommand c5 = ComCommandParser.Parse("RAW:TXT:hello world");
         string rawText = c5 != null && c5.RawMode ? System.Text.Encoding.UTF8.GetString(c5.RawBytes) : string.Empty;
         Check("Parse RAW TXT", c5 != null && c5.RawMode && rawText == "hello world");
 
-        NovaCommand c6 = NovaCommandParser.Parse("@devC state=0 read_multi 1,2,3");
+        ComCommand c6 = ComCommandParser.Parse("@devC state=0 read_multi 1,2,3");
         Check("Parse AT state as named arg", c6 != null && c6.DeviceName == "devC" && c6.Command == "read_multi" && c6.Args == "1,2,3" && c6.Address == null);
     }
 
