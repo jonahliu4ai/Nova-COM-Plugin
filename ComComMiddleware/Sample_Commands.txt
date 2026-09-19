@@ -78,3 +78,15 @@ OK|NoRsp        - 发送成功，但未收到设备响应
 OK|NoWait       - 发送成功，fixed-frame/custom 中 response_mode=none
 OK|AA 55 ...    - 收到响应，以 HEX 展示
 ERR:...         - 解析或执行错误，如 ERR:CustomParse:key 表示 custom 参数缺失/超范围
+
+-----------------------------------------------------------------------------
+## 6. Custom ASCII / AT 模式示例（需对应 JSON 配置）
+-----------------------------------------------------------------------------
+
+# 假设 JSON 中定义了：
+# "identify": { "send": "AT+ID?\r\n", "send_mode": "ascii" }
+@MyATDevice identify
+
+# 假设 JSON 中定义了：
+# "set_ch": { "send": "AT+CH={channel},{state}\r\n", "send_mode": "ascii" }
+@MyATDevice set_ch channel=3 state=1

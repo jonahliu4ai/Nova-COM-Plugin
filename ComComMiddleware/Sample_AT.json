@@ -1,0 +1,31 @@
+{
+  "name": "Sample_AT",
+  "protocol": "custom",
+  "default_baudrate": 9600,
+  "default_address": 1,
+  "commands": {
+    "identify": {
+      "send": "AT+ID?\r\n",
+      "send_mode": "ascii",
+      "response_mode": "text",
+      "response_parse": "text"
+    },
+    "version": {
+      "send": "AT+VERSION?\r\n",
+      "send_mode": "ascii",
+      "response_mode": "text",
+      "response_parse": "text"
+    },
+    "set_ch": {
+      "send": "AT+CH={channel},{state}\r\n",
+      "send_mode": "ascii",
+      "response_mode": "text",
+      "response_parse": "text"
+    },
+    "hex_ping": {
+      "send": "AA 55 01 {addr:u8}",
+      "response_mode": "text",
+      "response_parse": "text"
+    }
+  }
+}

@@ -1273,7 +1273,15 @@ namespace ComComMiddleware
             {
                 try
                 {
-                    frame = BuildSendTemplate(def.send, map);
+                    string mode = def.send_mode == null ? string.Empty : def.send_mode.Trim().ToLowerInvariant();
+                    if (mode == "ascii" || mode == "text")
+                    {
+                        frame = BuildSendAsciiTemplate(def.send, map);
+                    }
+                    else
+                    {
+                        frame = BuildSendTemplate(def.send, map);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -1433,6 +1441,37 @@ namespace ComComMiddleware
             }
 
             return bytes.ToArray();
+        }
+
+        private byte[] BuildSendAsciiTemplate(string send, Dictionary<string, string> map)
+        {
+            if (string.IsNullOrWhiteSpace(send))
+            {
+                return new byte[0];
+            }
+
+            var text = send;
+            text = text.Replace("{addr}", Address.ToString(CultureInfo.InvariantCulture));
+            text = text.Replace("{address}", Address.ToString(CultureInfo.InvariantCulture));
+            text = text.Replace("{ADDR}", Address.ToString(CultureInfo.InvariantCulture));
+
+            if (map != null)
+            {
+                foreach (KeyValuePair<string, string> kv in map)
+                {
+                    text = text.Replace("{" + kv.Key + "}", kv.Value);
+                }
+            }
+
+            if (text.Contains("{"))
+            {
+                int start = text.IndexOf("{");
+                int end = text.IndexOf("}", start);
+                string token = end > start ? text.Substring(start + 1, end - start - 1) : text.Substring(start + 1);
+                throw new Exception("CustomParse:" + token + ":");
+            }
+
+            return Encoding.ASCII.GetBytes(text);
         }
 
         private static bool TryParseU8(string value, out byte result)
@@ -1747,6 +1786,7 @@ namespace ComComMiddleware
         public List<string> registers { get; set; }
         public string checksum { get; set; }
         public string send { get; set; }
+        public string send_mode { get; set; }
         public int? response_length { get; set; }
         public string response_mode { get; set; }
         public string response_parse { get; set; }
@@ -2014,6 +2054,7 @@ namespace ComComMiddleware
             c.value = IntN(d, "value");
             c.template = Str(d, "template");
             c.send = Str(d, "send");
+            c.send_mode = Str(d, "send_mode");
             c.checksum = Str(d, "checksum");
             c.response_mode = Str(d, "response_mode");
             c.response_parse = Str(d, "response_parse");
@@ -2351,6 +2392,33 @@ namespace ComComMiddleware
             + "    },\n"
             + "    \"echo\": {\n"
             + "      \"send\": \"AA 55 02 {msg}\",\n"
+            + "      \"response_mode\": \"text\",\n"
+            + "      \"response_parse\": \"text\"\n"
+            + "    }\n"
+            + "  }\n"
+            + "}";
+
+        public const string AT = "{\n"
+            + "  \"name\": \"Sample_AT\",\n"
+            + "  \"protocol\": \"custom\",\n"
+            + "  \"default_baudrate\": 9600,\n"
+            + "  \"default_address\": 1,\n"
+            + "  \"commands\": {\n"
+            + "    \"identify\": {\n"
+            + "      \"send\": \"AT+ID?\\r\\n\",\n"
+            + "      \"send_mode\": \"ascii\",\n"
+            + "      \"response_mode\": \"text\",\n"
+            + "      \"response_parse\": \"text\"\n"
+            + "    },\n"
+            + "    \"version\": {\n"
+            + "      \"send\": \"AT+VERSION?\\r\\n\",\n"
+            + "      \"send_mode\": \"ascii\",\n"
+            + "      \"response_mode\": \"text\",\n"
+            + "      \"response_parse\": \"text\"\n"
+            + "    },\n"
+            + "    \"set_ch\": {\n"
+            + "      \"send\": \"AT+CH={channel},{state}\\r\\n\",\n"
+            + "      \"send_mode\": \"ascii\",\n"
             + "      \"response_mode\": \"text\",\n"
             + "      \"response_parse\": \"text\"\n"
             + "    }\n"

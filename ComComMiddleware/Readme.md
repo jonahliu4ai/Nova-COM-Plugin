@@ -213,6 +213,13 @@ RAW:TXT:hello world
 
 ### 3. Custom 协议
 
+Custom 协议支持两种发送模式，通过 `send_mode` 指定：
+
+- `hex`（默认）：`send` 中固定 token 按 hex 解析，占位符 `{key:u8}` 插入 1 字节。
+- `ascii` / `text`：`send` 整体作为 ASCII 文本模板，占位符 `{key}` 直接替换为参数文本。
+
+#### Hex 模式示例
+
 ```json
 "commands": {
   "ping": {
@@ -221,17 +228,46 @@ RAW:TXT:hello world
     "response_parse": "text"
   },
   "echo": {
-    "send": "AA 55 02 {d1:u8} {d2:u8} {d3:u8}",
+    "send": "AA 55 02 {d1:u8} {d2:u8}",
     "response_mode": "text"
   }
 }
 ```
 
+#### ASCII / AT 模式示例
+
+```json
+"commands": {
+  "identify": {
+    "send": "AT+ID?\r\n",
+    "send_mode": "ascii",
+    "response_mode": "text",
+    "response_parse": "text"
+  },
+  "set_ch": {
+    "send": "AT+CH={channel},{state}\r\n",
+    "send_mode": "ascii",
+    "response_mode": "text",
+    "response_parse": "text"
+  }
+}
+```
+
+发送命令：
+
+```text
+@MyATDevice identify
+@MyATDevice set_ch channel=3 state=1
+```
+
+实际发出 ASCII 字节：`AT+CH=3,1\r\n`。
+
 字段说明：
 
 | 字段 | 说明 |
 |------|------|
-| `send` | 空格分隔 token；固定 token 按 hex 解析；`{key:u8}` 为 1 字节参数 |
+| `send` | hex 模式：空格分隔 token；ascii 模式：完整 ASCII 文本模板 |
+| `send_mode` | `hex`（默认）、`ascii` 或 `text` |
 | `response_mode` | `none` 不等待响应；默认等待 |
 | `response_parse` | `text` 以 ASCII 解析响应；默认 HEX |
 
@@ -245,7 +281,7 @@ RAW:TXT:hello world
 4. 为每个操作定义 `commands`：
    - Modbus：`action` + `register`
    - Fixed-frame：`template` + `params` + `response_mode`
-   - Custom：`send` + `{key:u8}` 占位符
+   - Custom：`send` + `send_mode`；hex 模式用 `{key:u8}`，ascii/AT 模式用 `{key}`
 5. 保存到配置目录，UI 中点击 **Load**。
 6. 用 Manual Send 或 `Sample_Commands.txt` 中的示例命令验证帧内容。
 

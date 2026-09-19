@@ -76,6 +76,16 @@ public class SmokeTests
         }
 
         Check("JsonLite", p != null && p.name == "dev" && p.protocol == "modbus-rtu" && reg != null && reg.addr == 10 && cmd != null && cmd.action == "read");
+
+        string customJson = "{\"name\":\"dev2\",\"protocol\":\"custom\",\"default_baudrate\":9600,\"default_address\":2,\"commands\":{\"at_cmd\":{\"send\":\"AT+CMD={ch}\\r\\n\",\"send_mode\":\"ascii\"}}}";
+        object customRoot = JsonLite.Parse(customJson);
+        DeviceProfile customProfile = JsonLite.MapProfile(JsonLite.AsObj(customRoot));
+        CommandDef atCmd = null;
+        if (customProfile != null && customProfile.commands != null)
+        {
+            customProfile.commands.TryGetValue("at_cmd", out atCmd);
+        }
+        Check("JsonLite send_mode", atCmd != null && atCmd.send == "AT+CMD={ch}\r\n" && atCmd.send_mode == "ascii");
     }
 
     private static void TestHexUtil()

@@ -368,10 +368,12 @@ namespace ComComMiddleware
             string p1 = Path.Combine(dir, "Sample_Modbus_Example.json");
             string p2 = Path.Combine(dir, "Sample_FixedFrame.json");
             string p3 = Path.Combine(dir, "Sample_Custom.json");
+            string p4 = Path.Combine(dir, "Sample_AT.json");
 
             if (!File.Exists(p1)) File.WriteAllText(p1, SampleTemplates.Modbus, Encoding.UTF8);
             if (!File.Exists(p2)) File.WriteAllText(p2, SampleTemplates.Fixed, Encoding.UTF8);
             if (!File.Exists(p3)) File.WriteAllText(p3, SampleTemplates.Custom, Encoding.UTF8);
+            if (!File.Exists(p4)) File.WriteAllText(p4, SampleTemplates.AT, Encoding.UTF8);
 
             AddLog("Generated sample files: " + dir);
             LoadProfiles();
