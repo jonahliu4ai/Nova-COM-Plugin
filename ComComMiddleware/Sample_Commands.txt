@@ -1,0 +1,80 @@
+# ComComMiddleware 测试命令示例
+
+以下命令可直接在 UI 的 Manual Send 文本框中发送，或通过 COM-A（Uplink）以文本方式写入。
+支持两种格式：
+1. 完整格式：DEVICE=<设备名>;ADDR=<站号>;CMD=<命令> [参数]
+2. 简写格式：@<设备名> <命令> [参数]
+
+如果网关已启动且 JSON 配置已加载，命令会经 COM-B（Downlink）转成对应协议帧发出。
+没有真实设备时，可用虚拟串口对（如 com0com）或自环测试：
+- 把 COM-A 和 COM-B 接到同一对虚拟串口的两端
+- 或使用串口自环工具在 COM-B 侧模拟应答
+
+-----------------------------------------------------------------------------
+## 1. Sample_Modbus (modbus-rtu)
+-----------------------------------------------------------------------------
+
+# 读取 PV（寄存器 0，int16，scale=0.1）
+DEVICE=Sample_Modbus;ADDR=1;CMD=read_pv
+@Sample_Modbus read_pv
+
+# 设置 SV 为 25.0（寄存器 1，输入为实际温度值，程序内部除以 scale 0.1）
+DEVICE=Sample_Modbus;ADDR=1;CMD=set_sv 25
+@Sample_Modbus set_sv 25
+
+# 直接读保持寄存器（底层快捷命令）
+DEVICE=Sample_Modbus;ADDR=1;CMD=read_hold 0 1
+@Sample_Modbus read_hold 0 1
+
+-----------------------------------------------------------------------------
+## 2. Sample_FixedFrame (fixed-frame)
+-----------------------------------------------------------------------------
+
+# 打开通道 3：帧为 A0 03 00 01 + sum8 校验
+DEVICE=Sample_FixedFrame;ADDR=1;CMD=open_ch N=3 state=1
+@Sample_FixedFrame open_ch N=3 state=1
+
+# 关闭通道 3：帧为 A0 03 00 00 + sum8 校验
+DEVICE=Sample_FixedFrame;ADDR=1;CMD=close_ch N=3 state=0
+@Sample_FixedFrame close_ch N=3 state=0
+
+# 发送 ping（固定帧 A0 00 00 00，response_mode=none，不等待响应）
+DEVICE=Sample_FixedFrame;ADDR=1;CMD=ping
+@Sample_FixedFrame ping
+
+-----------------------------------------------------------------------------
+## 3. Sample_Custom (custom)
+-----------------------------------------------------------------------------
+
+# ping：AA 55 01 <addr>
+DEVICE=Sample_Custom;ADDR=1;CMD=ping
+@Sample_Custom ping
+
+# echo_hex：AA 55 02 d1 d2 d3 d4 d5，每个参数必须是 0-255
+DEVICE=Sample_Custom;ADDR=1;CMD=echo_hex d1=1 d2=2 d3=3 d4=4 d5=5
+@Sample_Custom echo_hex d1=1 d2=2 d3=3 d4=4 d5=5
+
+# 使用十六进制参数
+@Sample_Custom echo_hex d1=0x11 d2=0x22 d3=0x33 d4=0x44 d5=0xFF
+
+-----------------------------------------------------------------------------
+## 4. RAW 透传（不依赖 JSON 配置）
+-----------------------------------------------------------------------------
+
+# 直接以 HEX 发送任意字节
+RAW:HEX:AA 55 01 01
+RAW:HEX:A0 03 00 01
+
+# 直接以 ASCII 文本发送
+RAW:TXT:hello world
+RAW:TXT:DEVICE=Sample_Custom;ADDR=1;CMD=ping
+
+-----------------------------------------------------------------------------
+## 5. 常见返回说明
+-----------------------------------------------------------------------------
+
+OK              - 命令执行成功（无具体返回数据）
+OK|NoRsp        - 发送成功，但未收到设备响应
+OK|NoWait       - 发送成功，fixed-frame/custom 中 response_mode=none
+OK|AA 55 ...    - 收到响应，以 HEX 展示
+ERR:...         - 解析或执行错误，如 ERR:CustomParse:key 表示 custom 参数缺失/超范围
