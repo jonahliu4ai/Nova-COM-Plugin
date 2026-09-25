@@ -2,6 +2,35 @@
 
 ## 工作日志
 
+### 2026-09-25
+- **ComComMiddleware SevenStar 引擎适配《SevenStar_Control_Manual.md》（用户手动校验版），真机测试通过**
+  - `SendAndReceiveSevenStar` 鲁棒收发重写：逐字节扫描 ACK/NAK → 扫描帧头 `[Addr][0x02][Service][DataLen]`（容忍 ACK 与响应帧间残留字节，手册 §8）→ 按 DataLen 收完；超时 800ms（设备 ACK 后约 100ms 才发响应帧）
+  - `ufrac16` 语义改为 sccm：按 `full_scale` 与 %FS 双向换算（写 clamp 0~125%，读支持负流量，手册 §3.3）；`ufrac16_pct` 保持 %FS 直读直写
+  - 默认地址 32→66（0x42），JSON 扩充为 26 寄存器/20 命令（与手册 §4 附录完全对应，含温度 ×0.0806−50）
+  - NAK 单字节判断移到长度检查之前（手册 §2.2）
+  - **设备别名机制**：JSON `alias` 字段（如 CS200A），`ProfileRepository.Get` 精确名→去扩展名→别名三级匹配；解决中文设备名经 COM A 编码损坏问题
+  - COM A 编码固定 UTF-8（默认 ASCII 会把中文名变成 `????`）；NoDevice/未识别行打印原始字节十六进制便于诊断
+  - 测试：`SmokeTests.exe` 24/24（新增 11 项 SevenStar 手册数值断言 + 3 项别名断言）；`TestSevenStarE2E.exe` COM0COM COM7↔COM8 端到端 3/3（100ms 延迟+残留字节注入+回读容差）
+  - `build.ps1` 第 4 步纳入 E2E 编译；README §4 重写；UI 加载 logo.ico
+  - 交付 `CS200A_真机测试包/`（含 10 步冒烟清单与 com0com setupc 建对命令），用户真机测试通过
+  - ⚠️ 手册 §5.2 响应示例校验和 0xB5 疑为笔误（按协议算应为 0x26），测试按协议计算值断言
+
+### 2026-09-19
+- **ComComMiddleware 串口协议中间件落地**（7 条提交，+5378/-30 行）
+  - 双 COM 透传架构：COM-A（Uplink）收 NOVA 文本命令 → JSON 配置 → 协议引擎组帧 → COM-B（Downlink）发设备，响应原路翻译回文本
+  - Core/UI 分离：`ComComMiddleware.Core.cs`（2795 行，零 WinForms 依赖）+ `ComComMiddleware.UI.cs`（609 行薄壳）
+  - UI 改用 TableLayoutPanel 动态布局，支持缩放，MinimumSize(860, 640)
+  - 四种协议引擎移植自 V4.5：modbus-rtu / fixed-frame / custom / sevenstar
+  - `NovaCommand` 重命名为 `ComCommand`（去 NOVA 耦合，语义通用化）
+  - 三种命令格式：完整 KV（`DEVICE=..;ADDR=..;CMD=..`）、简写（`@dev cmd args`）、RAW 透传（`RAW:HEX:` / `RAW:TXT:`）
+  - **CustomEngine 新增 ascii/text 模式**：`send_mode:"ascii"` + `response_mode:"text"` 支持 AT 指令类设备（Sample_AT.json 示例）
+  - SevenStar 引擎：CS200A JSON 扩充（248→316 行）+ 新增 CS200A_FixedFrame 变体（50 行）
+  - SmokeTests.cs 冒烟测试：命令解析（KV/简写/RAW）+ JsonLite + HexUtil + 引擎工厂
+  - `build.ps1` 一键编译 exe + Core.dll + SmokeTests.exe
+  - 文档：ComComMiddleware/Readme.md（420 行）、README.md 重写、Sample_Commands.txt、devices/README.md 扩充
+  - ⚠️ 简写格式解析陷阱：`key=value` 参数可前置，需先归类后定位命令名；ADDR 与命名参数需区分
+- **博客草稿**：`sliutech_website/for-ai/blog-drafts/20260919-comcom-middleware-protocol-gateway.md`
+
 ### 2026-09-08
 - **V4.5.1：零依赖 JSON 解析器落地**
   - 新增内置 `JsonLite` 类（递归下降解析器），替换 `JavaScriptSerializer`
@@ -211,4 +240,4 @@ relay.SendCommand("open_ch N=3");  // 打开第 3 路
 
 ---
 
-*最后更新：2026-08-26*
+*最后更新：2026-09-25*

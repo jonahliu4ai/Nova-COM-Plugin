@@ -248,6 +248,9 @@ namespace ComComMiddleware
 
             _comA = new SerialPort(cfg.ComA, cfg.BaudA, Parity.None, 8, StopBits.One);
             _comB = new SerialPort(cfg.ComB, cfg.BaudB, Parity.None, 8, StopBits.One);
+            // COM A 是文本命令通道：默认 ASCII 会把中文设备名变成 '?'，
+            // 统一 UTF-8（发送端也须用 UTF-8；无法保证时请用 JSON 中的纯 ASCII alias）
+            _comA.Encoding = Encoding.UTF8;
             _comA.NewLine = "\n";
             _comA.ReadTimeout = cfg.ReadTimeoutMs;
             _comA.WriteTimeout = cfg.ReadTimeoutMs;
@@ -386,6 +389,7 @@ namespace ComComMiddleware
                 ComCommand parsed = ComCommandParser.Parse(cmd.RawLine);
                 if (parsed == null)
                 {
+                    Log("Unparsed line ignored, raw=" + BitConverter.ToString(Encoding.UTF8.GetBytes(cmd.RawLine ?? string.Empty)));
                     return;
                 }
 
@@ -399,6 +403,8 @@ namespace ComComMiddleware
 
                 if (string.IsNullOrWhiteSpace(parsed.DeviceName))
                 {
+                    // 诊断：记录原始字节，定位编码/全角字符问题（如 ＝；会被当成无 DEVICE）
+                    Log("ERR:NoDevice, raw=" + BitConverter.ToString(Encoding.UTF8.GetBytes(parsed.RawLine ?? string.Empty)));
                     WriteToNova("ERR:NoDevice");
                     return;
                 }
@@ -573,6 +579,17 @@ namespace ComComMiddleware
                 if (_cache.ContainsKey(n))
                 {
                     return _cache[n];
+                }
+
+                // 别名匹配（纯 ASCII，如 CS200A）：_cache 已是 OrdinalIgnoreCase
+                foreach (var kv in _cache)
+                {
+                    DeviceProfile p = kv.Value;
+                    if (p != null && !string.IsNullOrWhiteSpace(p.alias) &&
+                        string.Equals(p.alias, name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return p;
+                    }
                 }
             }
             return null;
@@ -1517,6 +1534,18 @@ namespace ComComMiddleware
         private const byte ACK_OK = 0x06;
         private const byte ACK_NAK = 0x15;
 
+        // 满量程（sccm）：ufrac16 在 sccm 与 %FS 之间换算（默认 100）
+        private double _fullScale = 100.0;
+
+        public override void Init(DeviceProfile profile, int address, SerialBus bus)
+        {
+            base.Init(profile, address, bus);
+            if (profile != null && profile.full_scale.HasValue && profile.full_scale.Value > 0)
+            {
+                _fullScale = profile.full_scale.Value;
+            }
+        }
+
         public override string Execute(string cmd, string args)
         {
             if (Profile == null || Profile.commands == null)
@@ -1571,7 +1600,9 @@ namespace ComComMiddleware
 
             byte service = isWrite ? SERVICE_WRITE : SERVICE_READ;
             byte[] frame = BuildFrame(service, cls, inst, attr, data);
-            byte[] rsp = Bus.SendAndReceive(frame, true, 0, true);
+            // V1.0.1: 用鲁棒收发（逐字节扫描 ACK + 按 DataLen 收完整帧 + 足够超时），
+            // 设备 ACK 后约 100ms 才发响应帧，旧 40ms 定长读取经常超时/截断
+            byte[] rsp = Bus.SendAndReceiveSevenStar(frame, 800);
             if (rsp == null || rsp.Length == 0)
             {
                 return "OK|NoRsp";
@@ -1601,7 +1632,7 @@ namespace ComComMiddleware
                 byte inst = ParseByte(null, reg.instance, 1);
                 byte attr = ParseByte(null, reg.attribute, 0);
                 byte[] frame = BuildFrame(SERVICE_READ, cls, inst, attr, null);
-                byte[] rsp = Bus.SendAndReceive(frame, true, 0, true);
+                byte[] rsp = Bus.SendAndReceiveSevenStar(frame, 800);
                 if (rsp == null || rsp.Length == 0)
                 {
                     parts.Add(rk + "=ERR:NoRsp");
@@ -1680,7 +1711,22 @@ namespace ComComMiddleware
 
             string t = reg.type == null ? "uint16" : reg.type.ToLowerInvariant();
 
-            if (t == "ufrac16" || t == "ufrac16_pct")
+            if (t == "ufrac16")
+            {
+                // 输入为 sccm，按满量程换算成 %FS 后编码（手册 §3.2）
+                double sccm;
+                if (!double.TryParse(args, NumberStyles.Float, CultureInfo.InvariantCulture, out sccm))
+                {
+                    return null;
+                }
+                double percent = sccm / _fullScale * 100.0;
+                if (percent < 0) percent = 0;
+                if (percent > 125) percent = 125;
+                ushort raw = UFrac16Encode(percent);
+                return new byte[] { (byte)(raw & 0xFF), (byte)(raw >> 8) };
+            }
+
+            if (t == "ufrac16_pct")
             {
                 double percent;
                 if (!double.TryParse(args, NumberStyles.Float, CultureInfo.InvariantCulture, out percent))
@@ -1731,6 +1777,12 @@ namespace ComComMiddleware
 
         private string ParseResponse(byte[] rsp, bool isWrite, RegisterDef reg)
         {
+            // NAK 为单字节响应，必须先于长度检查（手册 §2.2）
+            if (rsp != null && rsp.Length >= 1 && rsp[0] == ACK_NAK)
+            {
+                return "ERR:NAK";
+            }
+
             if (rsp == null || rsp.Length < 10)
             {
                 return "ERR:ShortRsp";
@@ -1738,10 +1790,6 @@ namespace ComComMiddleware
 
             int idx = 0;
             byte ack = rsp[idx++];
-            if (ack == ACK_NAK)
-            {
-                return "ERR:NAK";
-            }
             if (ack != ACK_OK)
             {
                 return "ERR:BadAck:" + ack.ToString("X2");
@@ -1804,7 +1852,20 @@ namespace ComComMiddleware
         {
             string t = reg.type == null ? "uint16" : reg.type.ToLowerInvariant();
 
-            if (t == "ufrac16" || t == "ufrac16_pct")
+            if (t == "ufrac16")
+            {
+                if (data == null || data.Length < 2)
+                {
+                    return "ERR";
+                }
+                ushort raw = (ushort)(data[0] | (data[1] << 8));
+                double percent = UFrac16Decode(raw);
+                // 支持负流量（阀门关闭后/逆流时为负，手册 §3.3）
+                double sccm = percent / 100.0 * _fullScale;
+                return ApplyScaleOffsetUnit(sccm, reg);
+            }
+
+            if (t == "ufrac16_pct")
             {
                 if (data == null || data.Length < 2)
                 {
@@ -1921,6 +1982,96 @@ namespace ComComMiddleware
                 _port.Read(b, 0, n);
                 return b;
             }
+        }
+
+        // V1.0.1: SevenStar 专用鲁棒收发。
+        // 背景（SevenStar_Control_Manual.md §8）：
+        //   1. 设备 ACK 在 2~4 字符时间返回，但完整响应帧约在 100ms 处理后才发出；
+        //   2. 缓冲区可能有残留旧帧，固定首字节读会错位。
+        // 做法：发送前清空缓冲；随后逐字节扫描直到 0x06/0x15 才开始组帧，
+        //       再按响应帧内 DataLen 收完整帧（ACK+4字节头+DataLen+Pad+CS）。
+        public byte[] SendAndReceiveSevenStar(byte[] frame, int timeoutMs)
+        {
+            lock (_lock)
+            {
+                if (_port == null || !_port.IsOpen)
+                {
+                    throw new Exception("COM-B closed");
+                }
+
+                _port.DiscardInBuffer();
+                _port.DiscardOutBuffer();
+                _port.Write(frame, 0, frame.Length);
+
+                DateTime deadline = DateTime.Now.AddMilliseconds(timeoutMs);
+                List<byte> stream = new List<byte>();
+
+                // 阶段1：扫描 ACK(0x06)/NAK(0x15)，跳过残留字节
+                int ackPos = -1;
+                while (DateTime.Now < deadline)
+                {
+                    if (_port.BytesToRead > 0)
+                    {
+                        byte b = (byte)_port.ReadByte();
+                        stream.Add(b);
+                        if (b == 0x06 || b == 0x15) { ackPos = stream.Count - 1; break; }
+                        if (stream.Count > 64) stream.RemoveAt(0); // 防膨胀，只保留尾部
+                    }
+                    else
+                    {
+                        Thread.Sleep(2);
+                    }
+                }
+                if (ackPos < 0) return new byte[0];
+                if (stream[ackPos] == 0x15) return new byte[] { 0x15 }; // NAK 单字节
+
+                // 阶段2：ACK 之后、响应帧之前可能混入残留字节（手册 §8），
+                // 扫描帧头 [Addr][STX=0x02][Service][DataLen]；
+                // Service 与请求一致（0x80/0x81），DataLen 合理范围 <=32
+                int hdrPos = -1;
+                byte reqService = frame.Length > 2 ? frame[2] : (byte)0;
+                while (DateTime.Now < deadline)
+                {
+                    for (int i = ackPos + 1; i + 3 < stream.Count; i++)
+                    {
+                        if (stream[i + 1] == 0x02 && stream[i + 2] == reqService && stream[i + 3] <= 32)
+                        {
+                            hdrPos = i;
+                            break;
+                        }
+                    }
+                    if (hdrPos >= 0) break;
+                    if (_port.BytesToRead > 0) stream.Add((byte)_port.ReadByte());
+                    else Thread.Sleep(2);
+                }
+                if (hdrPos < 0) return TrimToAck(stream, ackPos);
+                int dataLen = stream[hdrPos + 3];
+
+                // 阶段3：按 DataLen 收完 Data+Pad+CheckSum（帧身 = 4字节头 + DataLen + 2）
+                int frameTotal = 4 + dataLen + 2;
+                int total = hdrPos + frameTotal;
+                while (stream.Count < total && DateTime.Now < deadline)
+                {
+                    if (_port.BytesToRead > 0) stream.Add((byte)_port.ReadByte());
+                    else Thread.Sleep(2);
+                }
+
+                // 返回 ACK + 完整帧（剔除 ACK 与帧之间的残留字节）
+                int got = Math.Min(stream.Count - hdrPos, frameTotal);
+                byte[] result = new byte[1 + got];
+                result[0] = stream[ackPos];
+                for (int i = 0; i < got; i++) result[1 + i] = stream[hdrPos + i];
+                return result;
+            }
+        }
+
+        private static byte[] TrimToAck(List<byte> stream, int ackPos)
+        {
+            int len = stream.Count - ackPos;
+            if (len <= 0) return new byte[0];
+            byte[] r = new byte[len];
+            for (int i = 0; i < len; i++) r[i] = stream[ackPos + i];
+            return r;
         }
 
         public ushort[] ModbusReadHolding(int addr, int reg, ushort n)
@@ -2162,6 +2313,8 @@ namespace ComComMiddleware
     public class DeviceProfile
     {
         public string name { get; set; }
+        // 纯 ASCII 别名：供 COM A 串口侧命令引用，绕开中文设备名的编码问题（如 CS200A）
+        public string alias { get; set; }
         public string protocol { get; set; }
         public int default_baudrate { get; set; }
         public int default_address { get; set; }
@@ -2340,6 +2493,7 @@ namespace ComComMiddleware
 
             DeviceProfile p = new DeviceProfile();
             p.name = Str(o, "name");
+            p.alias = Str(o, "alias");
             p.protocol = Str(o, "protocol");
             p.default_baudrate = Int(o, "default_baudrate", 9600);
             p.default_address = Int(o, "default_address", 1);

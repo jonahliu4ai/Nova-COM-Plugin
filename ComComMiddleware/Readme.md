@@ -275,27 +275,38 @@ Custom 协议支持两种发送模式，通过 `send_mode` 指定：
 ### 4. SevenStar 协议（七星华创 CS200A）
 
 专用协议，自动拼帧、计算 `sum8` 校验、处理 `UFRAC16` 流量值编码/解码。
+依据《CS 系列 MFC 通讯协议 V2.3》与 `SevenStar_Control_Manual.md`（用户校验版）实现：
+
+- 出厂默认地址 **0x42 (66)**，波特率 **19200 8N1**；
+- 设备收到命令后 2~4 字符时间内先回 `ACK(0x06)`，约 100ms 后才发完整响应帧，
+  引擎用专用鲁棒收发（`SendAndReceiveSevenStar`）：发送前清空缓冲 → 逐字节扫描 ACK/NAK →
+  再扫描帧头 `[Addr][0x02][Service][DataLen]`（容忍 ACK 与响应帧之间的残留字节）→
+  按 DataLen 收完 Data+Pad+Checksum；
+- `ufrac16` 类型的读写值以 **sccm**（实际流量）为单位，引擎按 `full_scale` 与 %FS 双向换算，
+  支持负流量（阀门关闭/逆流）；
+- NAK 为单字节 `0x15`，先于长度检查处理。
 
 ```json
 {
   "name": "七星华创_CS200A",
   "protocol": "sevenstar",
-  "default_baudrate": 9600,
-  "default_address": 32,
+  "default_baudrate": 19200,
+  "default_address": 66,
+  "full_scale": 100,
   "registers": {
     "flow": {
       "class": "0x68",
       "instance": "0x01",
       "attribute": "0xB9",
       "type": "ufrac16",
-      "unit": "%"
+      "unit": "sccm"
     },
     "setpoint": {
       "class": "0x69",
       "instance": "0x01",
       "attribute": "0xA4",
       "type": "ufrac16",
-      "unit": "%"
+      "unit": "sccm"
     }
   },
   "commands": {
@@ -311,7 +322,8 @@ Custom 协议支持两种发送模式，通过 `send_mode` 指定：
 | 字段 | 说明 |
 |------|------|
 | `class` / `instance` / `attribute` | 命令定位字段，对应协议文档中的 Class / Instance / Attribute |
-| `type` | `ufrac16` / `ufrac16_pct` / `uint16` / `int16` / `uint8` / `string` / `textXX` |
+| `type` | `ufrac16`（sccm，按 `full_scale` 换算）/ `ufrac16_pct`（%FS 直读直写）/ `uint16` / `int16` / `uint8` / `string` / `textXX` |
+| `full_scale` | 满量程（sccm），`ufrac16` 换算基准，默认 100 |
 | `scale` / `offset` | 读取后的换算系数和偏移 |
 | `unit` | 显示单位 |
 | `action` | 命令动作：`read`、`write`、`read_multi` |
@@ -327,7 +339,13 @@ Custom 协议支持两种发送模式，通过 `send_mode` 指定：
 @七星华创_CS200A read_multi
 ```
 
-写 50 表示 50% 满量程，引擎自动编码为 `UFRAC16` 原始值 `0x8000`。
+写 50 表示 **50 sccm**（50% 满量程），引擎自动换算并编码为 `UFRAC16` 原始值
+（如满量程 100 sccm 时 10 sccm → `0x4CCC`，即手册 §4.3 示例帧
+`42 02 81 05 69 01 A4 CC 4C 00 F0`）。
+完整配置（26 个寄存器、20 条命令，含温度 scale/offset、阀门控制、设备信息等）
+见 `七星华创_CS200A.json`；端到端联调（COM0COM 虚拟串口对 + 模拟从机）见
+`TestSevenStarE2E.cs`，编译由 `build.ps1` 第 4 步完成，运行时需本机已装 com0com 的
+COM7↔COM8 端口对。
 
 ---
 
@@ -357,11 +375,13 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 - `ComComMiddleware.Core.dll`：核心类库（协议、配置、网关）
 - `ComComMiddleware.exe`：WinForms UI
 - `SmokeTests.exe`：单元/集成测试
+- `TestSevenStarE2E.exe`：SevenStar 端到端联调（需 com0com 的 COM7↔COM8 端口对）
 
 运行测试：
 
 ```powershell
 .\SmokeTests.exe
+.\TestSevenStarE2E.exe        # SevenStar E2E，预期 PASS=3 FAIL=0
 ```
 
 ---

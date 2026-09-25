@@ -15,6 +15,8 @@ public class SmokeTests
         TestJsonLite();
         TestHexUtil();
         TestFactory();
+        TestSevenStar();
+        TestAlias();
 
         Console.WriteLine("PASS=" + _pass + " FAIL=" + _fail);
 
@@ -105,5 +107,93 @@ public class SmokeTests
             Check("Engine factory", m != null && f != null && c != null && s != null && ProtocolEngineFactory.Create("none") == null);
         }
     }
-}
 
+    private static void TestSevenStar()
+    {
+        // 依据 SevenStar_Control_Manual.md（2026-09-25 手动校验版）验证引擎编解码
+        DeviceProfile p = new DeviceProfile();
+        p.full_scale = 100;
+        var engine = ProtocolEngineFactory.Create("sevenstar");
+        engine.Init(p, 66, null);
+
+        // 手册 §3.2: 10%FS -> raw = 0x4CCC
+        var enc = InvokePrivate(engine, "UFrac16Encode", new System.Type[] { typeof(double) }, new object[] { 10.0 });
+        Check("SS UFrac16Encode(10%)=0x4CCC", enc is ushort && (ushort)enc == 0x4CCC);
+
+        // 手册 §5.2: 0x4F3D -> 11.9%FS（官方 V2.3 示例）
+        var dec = InvokePrivate(engine, "UFrac16Decode", new System.Type[] { typeof(ushort) }, new object[] { (ushort)0x4F3D });
+        Check("SS UFrac16Decode(0x4F3D)~11.9%", dec is double && System.Math.Abs((double)dec - 11.9049) < 0.01);
+
+        // 手册 §3.3: 0x3F3E -> -0.59%FS（负流量，阀门关闭后正常）
+        var decNeg = InvokePrivate(engine, "UFrac16Decode", new System.Type[] { typeof(ushort) }, new object[] { (ushort)0x3F3E });
+        Check("SS UFrac16Decode(0x3F3E)~-0.59%", decNeg is double && System.Math.Abs((double)decNeg - (-0.59)) < 0.01);
+
+        // 手册 §4.3: 地址 66 写 10 sccm 完整帧 = 42 02 81 05 69 01 A4 CC 4C 00 F0
+        var regFlow = new RegisterDef { type = "ufrac16", unit = "sccm" };
+        var data = InvokePrivate(engine, "EncodeWriteData", new System.Type[] { typeof(RegisterDef), typeof(string), typeof(string) },
+            new object[] { regFlow, "10", "float" }) as byte[];
+        Check("SS EncodeWriteData(10 sccm)=CC 4C", data != null && data.Length == 2 && data[0] == 0xCC && data[1] == 0x4C);
+        var frame = InvokePrivate(engine, "BuildFrame", new System.Type[] { typeof(byte), typeof(byte), typeof(byte), typeof(byte), typeof(byte[]) },
+            new object[] { (byte)0x81, (byte)0x69, (byte)0x01, (byte)0xA4, data }) as byte[];
+        string hex = frame == null ? "" : HexUtil.ToHex(frame).Replace(" ", "");
+        Check("SS BuildFrame(写10sccm)=420281056901A4CC4C00F0", hex == "420281056901A4CC4C00F0");
+
+        // 官方 V2.3 示例响应 06 00 02 80 05 68 01 B9 3D 4F 00 35 -> 11.905 sccm
+        byte[] rsp = HexUtil.ParseHexBytes("06 00 02 80 05 68 01 B9 3D 4F 00 35");
+        var parsed = InvokePrivate(engine, "ParseResponse", new System.Type[] { typeof(byte[]), typeof(bool), typeof(RegisterDef) },
+            new object[] { rsp, false, regFlow }) as string;
+        Check("SS ParseResponse 官方示例=11.905sccm", parsed != null && parsed.StartsWith("11.9"));
+
+        // 手册 §3.3 负流量响应（数据 3E 3F, 校验和按协议重算 0x26）-> 负值
+        byte[] rspNeg = HexUtil.ParseHexBytes("06 00 02 80 05 68 01 B9 3E 3F 00 26");
+        var parsedNeg = InvokePrivate(engine, "ParseResponse", new System.Type[] { typeof(byte[]), typeof(bool), typeof(RegisterDef) },
+            new object[] { rspNeg, false, regFlow }) as string;
+        Check("SS ParseResponse 负流量=-0.586sccm", parsedNeg != null && parsedNeg.StartsWith("-0.5"));
+
+        // NAK 单字节必须先判（手册 §2.2）
+        var nak = InvokePrivate(engine, "ParseResponse", new System.Type[] { typeof(byte[]), typeof(bool), typeof(RegisterDef) },
+            new object[] { new byte[] { 0x15 }, false, regFlow }) as string;
+        Check("SS NAK 单字节=ERR:NAK", nak == "ERR:NAK");
+
+        // 校验和错误必须被拒绝
+        byte[] rspBad = HexUtil.ParseHexBytes("06 00 02 80 05 68 01 B9 3D 4F 00 00");
+        var bad = InvokePrivate(engine, "ParseResponse", new System.Type[] { typeof(byte[]), typeof(bool), typeof(RegisterDef) },
+            new object[] { rspBad, false, regFlow }) as string;
+        Check("SS 错误校验和=ERR:BadChecksum", bad == "ERR:BadChecksum");
+
+        // 读控制模式（uint8，手册 §4.1）数据区单字节
+        var regCm = new RegisterDef { type = "uint8", unit = "" };
+        byte[] rspCm = HexUtil.ParseHexBytes("06 00 02 80 04 69 01 03 02 00 F5");
+        var cm = InvokePrivate(engine, "ParseResponse", new System.Type[] { typeof(byte[]), typeof(bool), typeof(RegisterDef) },
+            new object[] { rspCm, false, regCm }) as string;
+        Check("SS 控制模式响应=2", cm == "2");
+        engine.Dispose();
+    }
+
+    private static void TestAlias()
+    {
+        // alias：纯 ASCII 别名经 COM A 串口命令引用设备，绕开中文设备名的编码问题
+        string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ccm_alias_test");
+        System.IO.Directory.CreateDirectory(dir);
+        System.IO.File.Copy("七星华创_CS200A.json", System.IO.Path.Combine(dir, "七星华创_CS200A.json"), true);
+
+        var repo = new ProfileRepository();
+        repo.SetDirectory(dir);
+        repo.LoadAll();
+
+        DeviceProfile byAlias = repo.Get("cs200a");
+        DeviceProfile byName = repo.Get("七星华创_CS200A");
+        Check("Profile alias 命中（cs200a→七星华创_CS200A）",
+            byAlias != null && byAlias.name == "七星华创_CS200A" && byAlias.alias == "CS200A" && byAlias.protocol == "sevenstar");
+        Check("Profile 中文名精确命中", byName != null && byName.alias == "CS200A");
+        Check("Profile 未知名返回 null", repo.Get("NO_SUCH_DEV") == null);
+    }
+
+    private static object InvokePrivate(object obj, string name, System.Type[] argTypes, object[] args)
+    {
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static;
+        var m = obj.GetType().GetMethod(name, flags, null, argTypes, null);
+        if (m == null) return null;
+        return m.Invoke(m.IsStatic ? null : obj, args);
+    }
+}

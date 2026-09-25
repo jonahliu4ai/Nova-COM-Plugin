@@ -49,6 +49,18 @@ namespace ComComMiddleware
             Font = new Font("Microsoft YaHei UI", 10f);
             AutoScaleMode = AutoScaleMode.Font;
 
+            try
+            {
+                string iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logo.ico");
+                if (File.Exists(iconPath))
+                {
+                    Icon = new Icon(iconPath);
+                }
+            }
+            catch
+            {
+            }
+
             BuildUi();
 
             _gateway = new ComGatewayService(_profiles);
